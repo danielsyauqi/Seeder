@@ -117,12 +117,20 @@ Apply migrations remotely:
 npm run db:migrate:remote
 ```
 
+For a self-hosted **node** instance (a local SQLite file via libSQL), apply
+migrations with `npm run db:migrate:node`. See the [cheat sheet](#cheat-sheet)
+for inspecting the database from a SQL client in any mode.
+
 ## Storage
 
 Uploaded images (profile pictures, rich-text attachments) are stored in
 Cloudflare R2 through the `UPLOADS` binding and served back via `/api/uploads/...`
 (auth-gated, so objects are never publicly listable). The bucket name is set in
 `wrangler.jsonc`. Locally, Miniflare keeps these objects under `.wrangler/state`.
+
+In **node** mode the same routes serve from local disk instead, under `UPLOADS_DIR`
+(default `./data/uploads`). See the [cheat sheet](#cheat-sheet) for reading R2
+objects from the dashboard, `wrangler`, or an S3 client.
 
 ## Auth
 
@@ -221,6 +229,79 @@ Runs on Cloudflare Workers (via OpenNext). Before the first deploy:
    one-time "create owner account" form. It only accepts the `OWNER_EMAIL` you
    configured, and only while the instance has no users. Afterwards, invite the
    rest of your team from the **Invites** page — public sign-up stays closed.
+
+## Cheat sheet
+
+Quick reference for day-to-day development and self-hosting. The `RUNTIME` env var
+(`cloudflare` default | `node`) selects the runtime — `npm run setup` sets it for you.
+
+### Commands
+
+```bash
+# Setup
+npm install
+npm run setup            # interactive wizard: dev / production node / cloudflare
+
+# Develop (Miniflare — local D1 + R2, no Cloudflare account)
+npm run dev              # Next.js dev server (webpack)
+npm run preview          # build + run the real Worker bundle locally
+
+# Quality gates (what CI runs)
+npm run lint
+npx tsc --noEmit
+npm test                 # vitest
+
+# Migrations
+npm run db:migrate:local   # → local Miniflare D1   (dev)
+npm run db:migrate:remote  # → deployed Cloudflare D1
+npm run db:migrate:node    # → local SQLite file    (node mode, SQLITE_DB_PATH)
+
+# Seed (dev only, needs Bun — writes to the local Miniflare D1)
+npm run db:seed:local        # owner: admin@admin.com / admin
+npm run db:seed:demo:local   # demo projects / tasks / requests
+
+# Self-host on a VM (node mode)
+npm run build:node
+npm run start:node           # kept alive by the generated PM2/systemd/Docker artifact
+
+# Deploy to Cloudflare
+npm run deploy
+```
+
+### Inspect the database
+
+- **Dev (Miniflare D1)** — it's a real SQLite file on disk:
+  - Quick SQL: `npx wrangler d1 execute PM_DB --local --command "SELECT email, role FROM user"`
+  - GUI: open `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite` in
+    DBeaver, TablePlus, or DB Browser for SQLite.
+- **Node mode** — open the file at `SQLITE_DB_PATH` (default `./data/seeder.db`)
+  in any SQLite tool, or `sqlite3 ./data/seeder.db`.
+- **Remote (Cloudflare D1)** —
+  `npx wrangler d1 execute PM_DB --remote --command "SELECT count(*) FROM user"`,
+  or the **D1 → Console** in the Cloudflare dashboard. (D1 has no host/port, so
+  traditional clients like DBeaver can't connect remotely — use wrangler/dashboard.)
+
+### Access uploads (R2 / disk)
+
+- **Dev (Miniflare R2)** —
+  `npx wrangler r2 object get seeder-uploads/<key> --local` (also `put` / `delete`);
+  the simplest path is through the app at `/api/uploads/...` (auth-gated).
+- **Node mode** — plain files under `UPLOADS_DIR` (default `./data/uploads`); just
+  `ls` / open them.
+- **Remote (Cloudflare R2)** —
+  - Cloudflare dashboard → **R2** → bucket browser (list / upload / download).
+  - `npx wrangler r2 object get seeder-uploads/<key> --remote`
+  - Any **S3 client** (`rclone`, Cyberduck, `aws s3`) — R2 is S3-compatible; create
+    an access key under **R2 → Manage R2 API Tokens** and point it at the R2 endpoint.
+
+### Seed data for dev testing
+
+`npm run db:seed:local` gives you an owner you can sign in with immediately
+(`admin@admin.com` / `admin`); `npm run db:seed:demo:local` adds demo content on
+top. Both require **Bun**, target the **local Miniflare D1**, and assume migrations
+have been applied. In **node mode** the seed scripts don't apply (they're
+wrangler/D1-only) — bootstrap the owner via the one-time form at `/sign-in`, or run
+SQL against the SQLite file directly.
 
 ## App structure
 
