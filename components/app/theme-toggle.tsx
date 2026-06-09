@@ -8,10 +8,10 @@ type Theme = "light" | "dark";
 const STORAGE_KEY = "seeder-theme";
 
 function readInitialTheme(): Theme {
-  if (typeof document === "undefined") return "dark";
-  return document.documentElement.getAttribute("data-theme") === "light"
-    ? "light"
-    : "dark";
+  if (typeof document === "undefined") return "light";
+  return document.documentElement.getAttribute("data-theme") === "dark"
+    ? "dark"
+    : "light";
 }
 
 function applyTheme(next: Theme) {
@@ -28,7 +28,7 @@ function applyTheme(next: Theme) {
 
 export function ThemeToggle() {
   const [mounted, setMounted] = useState(false);
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
     setTheme(readInitialTheme());

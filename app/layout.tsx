@@ -65,7 +65,10 @@ export async function generateViewport(): Promise<Viewport> {
   return { themeColor: safeAccentColor(settings.accentColor) };
 }
 
-const themeBootScript = `(function(){try{var t=localStorage.getItem('seeder-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}var s=localStorage.getItem('seeder-sidebar-collapsed');if(s==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true');}}catch(e){}})();`;
+// Default theme is light: absent a stored preference (or anything other than an
+// explicit 'dark'), set data-theme="light". Runs in <head> before paint, so a
+// dark-preferring user never flashes light and vice-versa.
+const themeBootScript = `(function(){try{var t=localStorage.getItem('seeder-theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');var s=localStorage.getItem('seeder-sidebar-collapsed');if(s==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true');}}catch(e){}})();`;
 
 export default async function RootLayout({
   children,
@@ -84,6 +87,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
+      data-theme="light"
       suppressHydrationWarning
       style={accentStyle}
       className={`${inter.variable} ${plexMono.variable} h-full antialiased`}

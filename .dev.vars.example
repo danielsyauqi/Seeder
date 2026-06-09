@@ -14,6 +14,12 @@ BETTER_AUTH_SECRET=change-me-in-production
 # Leave unset locally — it defaults to the request origin.
 # BETTER_AUTH_URL=
 
+# Optional: extra Origins allowed to make auth requests, on top of
+# BETTER_AUTH_URL + localhost. Comma-separated. Use when the app is reachable at
+# more than one hostname (e.g. a *.workers.dev URL AND a custom domain) so
+# sign-in isn't rejected with "Invalid origin".
+# BETTER_AUTH_TRUSTED_ORIGINS=https://app.example.com,https://seeder.example.workers.dev
+
 # Optional: enable Google sign-in when both are present.
 # GOOGLE_CLIENT_ID=
 # GOOGLE_CLIENT_SECRET=

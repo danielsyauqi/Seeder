@@ -146,6 +146,11 @@ Onboarding is **invite-only**, with a single bootstrap exception:
   invite flow. There is no open registration.
 - **Google sign-in** appears automatically when the OAuth env vars are present,
   and only signs into already-provisioned accounts (no self-provisioning).
+- **Multiple hostnames.** Auth requests are origin-checked against
+  `BETTER_AUTH_URL` (the canonical base URL) plus `localhost`. If the app is
+  reachable at more than one hostname — e.g. both a `*.workers.dev` URL and a
+  custom domain — list the extras in `BETTER_AUTH_TRUSTED_ORIGINS`
+  (comma-separated) so sign-in isn't rejected with `Invalid origin`.
 
 ## MCP server
 
