@@ -11,8 +11,28 @@ import { brandingUrl, getSystemSettings } from "@/lib/system-settings";
 type SignInPageProps = {
   searchParams: Promise<{
     invite?: string | string[];
+    error?: string | string[];
   }>;
 };
+
+// Better-Auth redirects a failed social login to `/sign-in?error=<code>` (see
+// the Google button's errorCallbackURL). Map the codes we can actually hit to
+// guidance that fits this invite-only setup; anything else gets a safe default.
+function googleErrorMessage(code: string | undefined): string | null {
+  switch (code) {
+    case undefined:
+      return null;
+    case "signup_disabled":
+      // disableImplicitSignUp: the Google email has no account here yet.
+      return "That Google account isn't recognised. Access is invite-only — ask an admin to invite your email, accept the invite, then sign in with Google.";
+    case "account_not_linked":
+      return "We couldn't link that Google account to an existing user. Sign in with your email and password instead (your Google email must match your invited email).";
+    case "email_not_found":
+      return "Google didn't share an email for that account, so we can't match it to a user.";
+    default:
+      return "Google sign-in failed. Please try again, or sign in with your email and password.";
+  }
+}
 
 export default async function SignInPage({ searchParams }: SignInPageProps) {
   // Use getViewer (not getSession): a deactivated user can still hold a session
@@ -24,8 +44,9 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
     redirect("/projects");
   }
 
-  const { invite } = await searchParams;
+  const { invite, error } = await searchParams;
   const inviteToken = Array.isArray(invite) ? invite[0] : invite;
+  const errorCode = Array.isArray(error) ? error[0] : error;
 
   const db = getDb();
 
@@ -68,6 +89,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         systemName={settings.systemName}
         logoDarkUrl={brandingUrl(settings.logoDarkKey, settings.updatedAt)}
         logoLightUrl={brandingUrl(settings.logoLightKey, settings.updatedAt)}
+        initialError={googleErrorMessage(errorCode)}
       />
     </main>
   );

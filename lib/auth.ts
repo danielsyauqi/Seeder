@@ -34,6 +34,24 @@ const googleProvider = serverEnv.hasGoogleAuth
     }
   : undefined;
 
+// Invited members get only a `credential` (password) account at invite time —
+// there is no Google account row. When they later "Continue with Google",
+// Better-Auth must link that Google identity onto their existing user by email.
+// By default that auto-link is only allowed when the provider reports the email
+// as verified (handleOAuthUserInfo). Google usually does, but some federated
+// Google accounts return email_verified:false, which would surface as an
+// "account_not_linked" error. Trusting Google here makes the link explicit and
+// no longer dependent on that per-login flag. Only meaningful when Google is
+// configured.
+const accountLinking = serverEnv.hasGoogleAuth
+  ? {
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ["google" as const],
+      },
+    }
+  : undefined;
+
 export const auth = betterAuth({
   appName: "Seeder",
   baseURL: serverEnv.betterAuthUrl,
@@ -53,6 +71,7 @@ export const auth = betterAuth({
     disableSignUp: false,
   },
   socialProviders: googleProvider,
+  account: accountLinking,
   databaseHooks: {
     user: {
       create: {

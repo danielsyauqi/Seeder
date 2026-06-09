@@ -22,6 +22,7 @@ type SignInPanelProps = {
   systemName: string;
   logoDarkUrl: string | null;
   logoLightUrl: string | null;
+  initialError?: string | null;
 };
 
 type Mode = "sign-in" | "create-account" | "accept-invite";
@@ -34,6 +35,7 @@ export function SignInPanel({
   systemName,
   logoDarkUrl,
   logoLightUrl,
+  initialError = null,
 }: SignInPanelProps) {
   const router = useRouter();
   const [mode] = useState<Mode>(
@@ -44,7 +46,10 @@ export function SignInPanel({
     invite?.email ?? (allowFirstOwner ? ownerEmail : ""),
   );
   const [password, setPassword] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Seeded from a failed Google redirect (/sign-in?error=…) so social-login
+  // failures surface in the same red box as email/password errors instead of
+  // dead-ending on Better-Auth's default error page.
+  const [errorMessage, setErrorMessage] = useState<string | null>(initialError);
   const [isPending, startTransition] = useTransition();
 
   const submitLabel =
@@ -276,6 +281,11 @@ export function SignInPanel({
                       authClient.signIn.social({
                         provider: "google",
                         callbackURL: "/projects",
+                        // Without this, a rejected Google login (un-invited
+                        // account, unlinkable email) lands on Better-Auth's bare
+                        // /api/auth/error page. Send failures back to the form
+                        // so the panel can show the reason.
+                        errorCallbackURL: "/sign-in",
                       })
                     }
                     className="ui-button-secondary w-full"
