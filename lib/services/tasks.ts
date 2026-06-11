@@ -182,7 +182,14 @@ export async function updateTask(
     existingTask.status === input.status
       ? existingTask.sortOrder
       : await getNextTaskSortOrder(input.projectId, input.status);
-  const assigneeId = await resolveAssignee(input.assigneeId, input.projectId);
+  // Only validate the assignee when it actually changes. Re-validating an
+  // unchanged assignee would block edits to a task whose current assignee isn't
+  // a project member (never added, or since removed) — you could no longer fix
+  // its title/status. A *changed* assignee is still checked against membership.
+  const assigneeId =
+    (input.assigneeId ?? null) === existingTask.assigneeId
+      ? existingTask.assigneeId
+      : await resolveAssignee(input.assigneeId, input.projectId);
 
   const category = await resolveCategory(input.categoryId, input.projectId);
   const nextDueDate = resolveDueDate(input.dueDate);
