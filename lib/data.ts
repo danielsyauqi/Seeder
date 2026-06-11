@@ -806,7 +806,15 @@ export async function getPublicProjectBoard(shareToken: string) {
         .where(eq(tasks.projectId, projectId))
         .orderBy(asc(tasks.sortOrder), desc(tasks.updatedAt)),
       db
-        .select()
+        // Only the columns the public board renders — never spread the raw
+        // row, so internal fields (ownerId, projectId) can't leak to a
+        // logged-out client even if the render layer later changes.
+        .select({
+          id: projectStatusUpdates.id,
+          taskId: projectStatusUpdates.taskId,
+          summary: projectStatusUpdates.summary,
+          createdAt: projectStatusUpdates.createdAt,
+        })
         .from(projectStatusUpdates)
         .where(eq(projectStatusUpdates.projectId, projectId))
         .orderBy(desc(projectStatusUpdates.createdAt)),
