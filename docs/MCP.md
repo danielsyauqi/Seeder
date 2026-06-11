@@ -50,7 +50,7 @@ AI client ──POST /api/mcp──▶  app/api/mcp/route.ts
         1. originAllowed(request)   → 403 if MCP_ALLOWED_ORIGINS set & Origin present-but-unlisted
         2. getViewerFromToken(req)  → { viewer, scope }  | 401 (JSON-RPC -32001) if invalid
         3. buildServer({viewer, scope})   (lib/mcp/server.ts)
-              · whoami + 6 read tools                 (always)
+              · whoami + 10 read tools                (always)
               · 11 write tools                        (only if scope === "readwrite")
         4. new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
         5. server.connect(transport); return transport.handleRequest(request)
@@ -169,9 +169,11 @@ Two layers, independent:
   `Viewer`, so it can never exceed what that user can do in the UI:
   - List reads (`list-projects`/`list-tasks`/`list-requests`) → scoped by
     `getPersonalProjectIds(viewer.id)` (projects owned **or** member of).
-  - Project-filtered reads & single-entity reads (`read-task`/`read-request`) →
-    gated by `canAccessProject(viewer, projectId)`; return `null`/`[]` on a miss
-    (never throw → no existence oracle).
+  - Project-filtered reads & single-entity reads (`read-task`/`read-request`/
+    `read-project-notes`) → gated by `canAccessProject(viewer, projectId)`; return
+    `null`/`[]` on a miss (never throw → no existence oracle).
+  - `list-daily-tasks` is **personal-only** — always scoped to `viewer.id`, so a
+    token can never read another user's day plan.
   - Writes → each service calls `assertProjectAccess(viewer, projectId)` first
     (`canAccessProject`).
 
@@ -179,7 +181,7 @@ Two layers, independent:
 
 ---
 
-## 7. Tool surface (18 tools)
+## 7. Tool surface (22 tools)
 
 **Read (always):**
 
@@ -192,6 +194,10 @@ Two layers, independent:
 | `list-requests` | `{ projectId?, status? }` | request summaries (≤100) |
 | `read-request` | `{ projectId, requestId }` | request detail, or `null` |
 | `search` | `{ query, limit? }` | cross-entity hits (≤50, max 100) |
+| `list-daily-tasks` | `{ date?, from?, to? }` | the viewer's own daily-plan items (≤100) |
+| `read-project-notes` | `{ projectId }` | project notes scratchpad, or `null` |
+| `list-project-activity` | `{ projectId?, limit? }` | project history w/ before→after diffs (≤100) |
+| `list-status-updates` | `{ projectId? }` | published client-facing status updates (≤100) |
 
 **Write (only with a `readwrite` token):**
 

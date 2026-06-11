@@ -183,9 +183,11 @@ tokens. All MCP-driven changes show in the project Activity feed, attributed to
 the token's user, exactly like changes made in the UI.
 
 **Tools:** `whoami`, `list-projects`, `list-tasks`, `read-task`, `list-requests`,
-`read-request`, `search` (read); `create/update/delete-task`, `update-task-status`,
-`create/toggle/update/delete-checklist-item`, `create/update/delete-request`
-(read & write). Project and daily-task write tools are planned.
+`read-request`, `search`, `list-daily-tasks`, `read-project-notes`,
+`list-project-activity`, `list-status-updates` (read); `create/update/delete-task`,
+`update-task-status`, `create/toggle/update/delete-checklist-item`,
+`create/update/delete-request` (read & write). Project and daily-task write tools
+are planned.
 
 **Hardening:** set `MCP_ALLOWED_ORIGINS` (comma-separated) to restrict which
 browser origins may call `/api/mcp` (DNS-rebinding protection). It's optional —

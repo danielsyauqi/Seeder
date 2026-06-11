@@ -21,9 +21,13 @@ import {
   updateChecklistItemInputSchema,
 } from "@/lib/services/checklist";
 import {
+  listDailyTasks,
+  listProjectActivity,
   listProjects,
   listRequests,
+  listStatusUpdates,
   listTasks,
+  readProjectNotes,
   readRequest,
   readTask,
   search,
@@ -180,6 +184,70 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
       annotations: { readOnlyHint: true },
     },
     async (args) => jsonResult(await search(viewer, args)),
+  );
+
+  server.registerTool(
+    "list-daily-tasks",
+    {
+      title: "List daily tasks",
+      description:
+        "List your daily-plan items (your own day plan only). Filter by a single date or a from/to range — dates are YYYY-MM-DD. Capped at 100, ordered by day then sort. Read-only.",
+      inputSchema: {
+        date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+        from: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+        to: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => jsonResult(await listDailyTasks(viewer, args)),
+  );
+
+  server.registerTool(
+    "read-project-notes",
+    {
+      title: "Read project notes",
+      description:
+        "Read a project's notes scratchpad by projectId. Returns null if there's no note or you can't access the project. Read-only.",
+      inputSchema: { projectId: z.string() },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => jsonResult(await readProjectNotes(viewer, args)),
+  );
+
+  server.registerTool(
+    "list-project-activity",
+    {
+      title: "List project activity",
+      description:
+        "List project history (the audit log, with before→after diffs), newest first. Optional projectId scopes to one project; otherwise spans all you can access. Read-only.",
+      inputSchema: {
+        projectId: z.string().optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => jsonResult(await listProjectActivity(viewer, args)),
+  );
+
+  server.registerTool(
+    "list-status-updates",
+    {
+      title: "List status updates",
+      description:
+        "List published project status updates (the client-facing summaries), newest first. Optional projectId scopes to one project; otherwise spans all you can access. Read-only.",
+      inputSchema: { projectId: z.string().optional() },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => jsonResult(await listStatusUpdates(viewer, args)),
   );
 }
 

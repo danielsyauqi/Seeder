@@ -3,7 +3,7 @@
 // getPersonalProjectIds), single-entity reads gate on canAccessProject and
 // return null/[] on a miss (never throw, so they can't be used as an existence
 // oracle). Output shapes are compact (no internal/sensitive fields).
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
 
 import type { Viewer } from "@/lib/auth-server";
 import { canAccessProject, getPersonalProjectIds } from "@/lib/authz";
@@ -12,9 +12,17 @@ import { getSearchIndexForUser, listProjectsForUser } from "@/lib/data";
 import { getDb } from "@/lib/db";
 import {
   clientRequests,
+  dailyTasks,
+  projectActivity,
+  projectNotes,
   projects,
+  projectStatusUpdates,
   taskChecklistItems,
   tasks,
+  type ActivityAction,
+  type ActivityChange,
+  type ActivityEntity,
+  type DailyTaskKind,
   type Priority,
   type ProjectStatus,
   type RequestStatus,
@@ -66,6 +74,46 @@ export type SearchHit = {
   code: string | null;
   title: string;
   projectId: string;
+};
+
+export type DailyTaskSummary = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: Priority;
+  kind: DailyTaskKind;
+  plannedDate: string;
+  projectId: string | null;
+  linkedTaskId: string | null;
+};
+
+export type ProjectNote = {
+  projectId: string;
+  content: string;
+  updatedAt: string;
+};
+
+export type ActivityEntry = {
+  id: string;
+  projectId: string;
+  entityType: ActivityEntity;
+  entityId: string;
+  action: ActivityAction;
+  label: string;
+  detail: string | null;
+  changes: ActivityChange[] | null;
+  actorId: string;
+  createdAt: string;
+};
+
+export type StatusUpdate = {
+  id: string;
+  projectId: string;
+  taskId: string;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const MAX_ROWS = 100;
@@ -265,4 +313,172 @@ export async function search(
     });
   }
   return hits;
+}
+
+const DAY_MS = 86_400_000;
+
+/** Parse a YYYY-MM-DD calendar key into UTC-midnight ms; null if malformed. */
+function dayStartMs(date: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/**
+ * Resolve a daily-plan filter into a [start, end) Date window, or null for "no
+ * window" (all items). `date` matches a single day; `from`/`to` give a range
+ * (either bound optional). Day keys are interpreted at UTC midnight, so a value
+ * stored at the owner's local start-of-day can sit up to one TZ offset from the
+ * boundary — fine for plan listing, where day granularity is what matters.
+ */
+function dailyDateRange(filter?: {
+  date?: string;
+  from?: string;
+  to?: string;
+}): { start: Date; end: Date } | null {
+  if (!filter) return null;
+  if (filter.date) {
+    const s = dayStartMs(filter.date);
+    return s == null ? null : { start: new Date(s), end: new Date(s + DAY_MS) };
+  }
+  if (filter.from || filter.to) {
+    const s = filter.from ? dayStartMs(filter.from) : null;
+    const e = filter.to ? dayStartMs(filter.to) : null;
+    return {
+      start: new Date(s ?? 0),
+      end: new Date((e ?? dayStartMs(new Date().toISOString().slice(0, 10))!) + DAY_MS),
+    };
+  }
+  return null;
+}
+
+/**
+ * The viewer's own daily-plan items, earliest day first. Daily plans are
+ * personal, so this is always scoped to the viewer (never another user's day).
+ * Optional `date` (YYYY-MM-DD) or `from`/`to` range narrows the window.
+ */
+export async function listDailyTasks(
+  viewer: Viewer,
+  filter?: { date?: string; from?: string; to?: string },
+): Promise<DailyTaskSummary[]> {
+  const db = getDb();
+  const clauses = [eq(dailyTasks.ownerId, viewer.id)];
+  const range = dailyDateRange(filter);
+  if (range) {
+    clauses.push(gte(dailyTasks.plannedDate, range.start));
+    clauses.push(lt(dailyTasks.plannedDate, range.end));
+  }
+  const rows = await db
+    .select()
+    .from(dailyTasks)
+    .where(and(...clauses))
+    .orderBy(asc(dailyTasks.plannedDate), asc(dailyTasks.sortOrder))
+    .limit(MAX_ROWS);
+  return rows.map((d) => ({
+    id: d.id,
+    title: d.title,
+    description: d.description,
+    status: d.status,
+    priority: d.priority,
+    kind: d.kind,
+    plannedDate: d.plannedDate.toISOString(),
+    projectId: d.projectId,
+    linkedTaskId: d.linkedTaskId,
+  }));
+}
+
+/**
+ * A project's notes scratchpad (one per project). Returns null if the project
+ * has no note yet or the viewer can't access it (never throws — no oracle).
+ */
+export async function readProjectNotes(
+  viewer: Viewer,
+  input: { projectId: string },
+): Promise<ProjectNote | null> {
+  if (!(await canAccessProject(viewer, input.projectId))) return null;
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(projectNotes)
+    .where(eq(projectNotes.projectId, input.projectId))
+    .limit(1);
+  if (!row) return null;
+  return {
+    projectId: row.projectId,
+    content: row.content,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Project history (the audit log), newest first. With `projectId`, scoped to
+ * that one accessible project; without it, across every project the viewer can
+ * access. `changes` carries the structured before→after diffs when present.
+ */
+export async function listProjectActivity(
+  viewer: Viewer,
+  filter?: { projectId?: string; limit?: number },
+): Promise<ActivityEntry[]> {
+  const db = getDb();
+  let scopeIds: string[];
+  if (filter?.projectId) {
+    if (!(await canAccessProject(viewer, filter.projectId))) return [];
+    scopeIds = [filter.projectId];
+  } else {
+    scopeIds = await getPersonalProjectIds(viewer.id);
+  }
+  if (scopeIds.length === 0) return [];
+  const limit = Math.min(filter?.limit ?? 50, MAX_ROWS);
+  const rows = await db
+    .select()
+    .from(projectActivity)
+    .where(inArray(projectActivity.projectId, scopeIds))
+    .orderBy(desc(projectActivity.createdAt))
+    .limit(limit);
+  return rows.map((a) => ({
+    id: a.id,
+    projectId: a.projectId,
+    entityType: a.entityType,
+    entityId: a.entityId,
+    action: a.action,
+    label: a.label,
+    detail: a.detail,
+    changes: a.changes ?? null,
+    actorId: a.ownerId,
+    createdAt: a.createdAt.toISOString(),
+  }));
+}
+
+/**
+ * Published project status updates (the client-facing summaries), newest first.
+ * With `projectId`, scoped to that one accessible project; without it, across
+ * every project the viewer can access.
+ */
+export async function listStatusUpdates(
+  viewer: Viewer,
+  filter?: { projectId?: string },
+): Promise<StatusUpdate[]> {
+  const db = getDb();
+  let scopeIds: string[];
+  if (filter?.projectId) {
+    if (!(await canAccessProject(viewer, filter.projectId))) return [];
+    scopeIds = [filter.projectId];
+  } else {
+    scopeIds = await getPersonalProjectIds(viewer.id);
+  }
+  if (scopeIds.length === 0) return [];
+  const rows = await db
+    .select()
+    .from(projectStatusUpdates)
+    .where(inArray(projectStatusUpdates.projectId, scopeIds))
+    .orderBy(desc(projectStatusUpdates.createdAt))
+    .limit(MAX_ROWS);
+  return rows.map((s) => ({
+    id: s.id,
+    projectId: s.projectId,
+    taskId: s.taskId,
+    summary: s.summary,
+    createdAt: s.createdAt.toISOString(),
+    updatedAt: s.updatedAt.toISOString(),
+  }));
 }
