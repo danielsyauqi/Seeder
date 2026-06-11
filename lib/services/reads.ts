@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
 // Viewer-scoped read queries for the MCP read tools. Every function is scoped
 // to what the viewer can see — list helpers reuse lib/data.ts (which filters by
 // getPersonalProjectIds), single-entity reads gate on canAccessProject and

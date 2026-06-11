@@ -1,5 +1,8 @@
 "use server";
 
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
 import { and, desc, eq, inArray, isNull, max } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
 import type { Metadata, Viewport } from "next";
 import { Inter, IBM_Plex_Mono } from "next/font/google";
 import { BuildRefreshGuard } from "@/components/app/build-refresh-guard";

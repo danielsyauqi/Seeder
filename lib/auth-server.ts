@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";

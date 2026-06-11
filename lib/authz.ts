@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
 import { and, eq, inArray } from "drizzle-orm";
 import { cache } from "react";
 

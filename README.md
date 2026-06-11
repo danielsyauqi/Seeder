@@ -352,6 +352,11 @@ wouldn't exist without it. 🙏
 
 [MIT](LICENSE) © 2026 Daniel Syauqi ([@danielsyauqi](https://github.com/danielsyauqi)) and Thaqif Rosdi ([@takippu](https://github.com/takippu))
 
+The code is free to use, fork, and modify under MIT — just keep the copyright
+notice and license intact (see [NOTICE](NOTICE)). The **Seeder name and logo**
+are trademarks and are not covered by the MIT License: you can fork the code,
+but not the brand. See [TRADEMARK.md](TRADEMARK.md).
+
 ---
 
 Made by [@danielsyauqi](https://github.com/danielsyauqi) and [@takippu](https://github.com/takippu).

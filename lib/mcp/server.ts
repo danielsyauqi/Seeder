@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
 // Builds the Seeder MCP server for a given authenticated token. Pure (no
 // request/transport concerns — the route owns those). Read tools are always
 // registered; write tools ONLY when the token's scope is "readwrite", so a

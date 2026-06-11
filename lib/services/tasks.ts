@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
 // Task mutation services — shared by the web route (app/api/workspace) and the
 // MCP server. Each takes a Viewer + typed input, performs the DB mutation +
 // activity logging, and returns a plain result. NO revalidatePath / redirect /

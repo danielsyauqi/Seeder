@@ -1,0 +1,37 @@
+Seeder
+Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
+This product is licensed under the MIT License. See the LICENSE file for the
+full terms.
+
+ATTRIBUTION
+-----------
+The MIT License permits you to use, copy, modify, and redistribute this
+software — including in commercial and closed-source products — on one
+condition: the above copyright notice and the LICENSE text must be preserved
+in all copies or substantial portions of the software.
+
+In plain terms:
+  - You MAY fork it, build on it, and ship it (even commercially).
+  - You MUST keep the copyright notice and license intact.
+  - You MAY NOT remove the authors' attribution or claim original authorship
+    of this work. Doing so terminates your license and is copyright
+    infringement.
+
+AUTHORSHIP & PROVENANCE
+-----------------------
+The authoritative record of authorship is the project's Git history at
+https://github.com/danielsyauqi/Seeder — every change is attributed and
+timestamped. If a third party reproduces this code without attribution, that
+history is the record of first authorship.
+
+TRADEMARKS
+----------
+"Seeder", the Seeder name, and the Seeder logo are trademarks of the authors
+and are NOT licensed under the MIT License. See TRADEMARK.md for what is and
+isn't permitted regarding the name and brand.
+
+CONTACT
+-------
+For licensing questions, attribution issues, or brand permission requests:
+seeder.admin@gmail.com
