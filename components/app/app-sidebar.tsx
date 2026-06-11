@@ -424,6 +424,12 @@ export function AppSidebar({
                 active={pathname.startsWith("/admin/users")}
               />
               <NavItem
+                href="/admin/projects"
+                icon={Folders}
+                label="Projects"
+                active={pathname.startsWith("/admin/projects")}
+              />
+              <NavItem
                 href="/admin/activity"
                 icon={Pulse}
                 label="Activity"

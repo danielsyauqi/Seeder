@@ -13,6 +13,7 @@ import {
   taskChecklistItems,
   tasks,
   user,
+  type ProjectStatus,
   type UserRole,
 } from "@/lib/db/schema";
 import { computeDashboard } from "@/lib/data";
@@ -138,6 +139,91 @@ export async function listWorkspaceUsers(): Promise<WorkspaceUser[]> {
     projectsOwned: ownedById.get(u.id) ?? 0,
     projectsMember: memberById.get(u.id) ?? 0,
   }));
+}
+
+export type AdminProjectSummary = {
+  id: string;
+  name: string;
+  slug: string | null;
+  clientName: string | null;
+  summary: string | null;
+  status: ProjectStatus;
+  color: string | null;
+  deadline: Date | null;
+  archivedAt: Date | null;
+  updatedAt: Date;
+  ownerId: string;
+  ownerName: string | null;
+  ownerEmail: string | null;
+  memberCount: number;
+  tasksTodo: number;
+  tasksDoing: number;
+  tasksDone: number;
+  totalTasks: number;
+};
+
+// Every project in the workspace, across all owners — for the admin Projects
+// index (repo-list view). Counts are aggregated in two grouped queries rather
+// than per-project to keep it to three round-trips total.
+export async function listAllProjects(): Promise<AdminProjectSummary[]> {
+  const db = getDb();
+
+  const [rows, taskCounts, memberCounts] = await Promise.all([
+    db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        slug: projects.slug,
+        clientName: projects.clientName,
+        summary: projects.summary,
+        status: projects.status,
+        color: projects.color,
+        deadline: projects.deadline,
+        archivedAt: projects.archivedAt,
+        updatedAt: projects.updatedAt,
+        ownerId: projects.ownerId,
+        ownerName: user.name,
+        ownerEmail: user.email,
+      })
+      .from(projects)
+      .leftJoin(user, eq(user.id, projects.ownerId))
+      .orderBy(desc(projects.updatedAt)),
+    db
+      .select({
+        projectId: tasks.projectId,
+        status: tasks.status,
+        c: count(tasks.id),
+      })
+      .from(tasks)
+      .groupBy(tasks.projectId, tasks.status),
+    db
+      .select({
+        projectId: projectMembers.projectId,
+        c: count(projectMembers.id),
+      })
+      .from(projectMembers)
+      .groupBy(projectMembers.projectId),
+  ]);
+
+  const memberById = new Map(memberCounts.map((row) => [row.projectId, row.c]));
+  const taskById = new Map<string, { todo: number; doing: number; done: number }>();
+  for (const row of taskCounts) {
+    const bucket = taskById.get(row.projectId) ?? { todo: 0, doing: 0, done: 0 };
+    bucket[row.status] = row.c;
+    taskById.set(row.projectId, bucket);
+  }
+
+  return rows.map((p) => {
+    const t = taskById.get(p.id) ?? { todo: 0, doing: 0, done: 0 };
+    return {
+      ...p,
+      memberCount: memberById.get(p.id) ?? 0,
+      tasksTodo: t.todo,
+      tasksDoing: t.doing,
+      tasksDone: t.done,
+      totalTasks: t.todo + t.doing + t.done,
+    };
+  });
 }
 
 export async function getWorkspaceTotals() {
