@@ -12,7 +12,7 @@ import {
   priorityLabel,
   taskStatusLabel,
 } from "@/lib/activity-diff";
-import type { Viewer } from "@/lib/auth-server";
+import { isAdminTier, type Viewer } from "@/lib/auth-server";
 import { formatTaskCode } from "@/lib/codes";
 import { getDb } from "@/lib/db";
 import {
@@ -182,12 +182,15 @@ export async function updateTask(
     existingTask.status === input.status
       ? existingTask.sortOrder
       : await getNextTaskSortOrder(input.projectId, input.status);
-  // Only validate the assignee when it actually changes. Re-validating an
-  // unchanged assignee would block edits to a task whose current assignee isn't
-  // a project member (never added, or since removed) — you could no longer fix
-  // its title/status. A *changed* assignee is still checked against membership.
+  // Admins get a pass on re-validating an *unchanged* assignee, so they can edit
+  // a task whose current assignee isn't a project member (never added, or since
+  // removed) without being blocked on its title/status. Members don't: their
+  // saves always re-validate, so a stale non-member assignee keeps blocking them.
+  // A *changed* assignee is checked against membership for everyone.
+  const assigneeUnchanged =
+    (input.assigneeId ?? null) === existingTask.assigneeId;
   const assigneeId =
-    (input.assigneeId ?? null) === existingTask.assigneeId
+    assigneeUnchanged && isAdminTier(viewer.role)
       ? existingTask.assigneeId
       : await resolveAssignee(input.assigneeId, input.projectId);
 
