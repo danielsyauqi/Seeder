@@ -167,10 +167,16 @@ export function AdminProjectsList({ projects }: Props) {
             <Folders className="size-5" />
           </div>
           <p className="mt-3 text-[13px] font-medium text-foreground">
-            No projects match “{query.trim()}”
+            {query.trim() ? (
+              <>No projects match “{query.trim()}”</>
+            ) : (
+              "No projects yet"
+            )}
           </p>
           <p className="mt-1 mx-auto max-w-sm text-[13px] leading-6 text-muted">
-            Try a different project name, client, or owner.
+            {query.trim()
+              ? "Try a different project name, client, or owner."
+              : "Projects created by any member will show up here."}
           </p>
         </div>
       )}
