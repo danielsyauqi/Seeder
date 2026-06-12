@@ -28,8 +28,19 @@ const plexMono = IBM_Plex_Mono({
 
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getSystemSettings();
-  const favicon =
-    brandingUrl(settings.faviconKey, settings.updatedAt) ?? "/favicon.ico";
+  // An uploaded white-label favicon replaces every icon slot; otherwise use the
+  // stock Seeder set (same as seeder-web): .ico fallback + crisp SVG mark +
+  // PNG apple-touch icon.
+  const brandedFavicon = brandingUrl(settings.faviconKey, settings.updatedAt);
+  const icons = brandedFavicon
+    ? { icon: brandedFavicon, shortcut: brandedFavicon, apple: brandedFavicon }
+    : {
+        icon: [
+          { url: "/favicon.ico", sizes: "any" },
+          { url: "/seeder-mark.svg", type: "image/svg+xml" },
+        ],
+        apple: "/seeder-icon-192.png",
+      };
   const ogImage =
     brandingUrl(settings.logoDarkKey, settings.updatedAt) ?? "/dark-logo.png";
   const appUrl = process.env.BETTER_AUTH_URL;
@@ -41,7 +52,7 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     description: SYSTEM_DESCRIPTION,
     applicationName: settings.systemName,
-    icons: { icon: favicon, shortcut: favicon, apple: favicon },
+    icons,
     appleWebApp: {
       capable: true,
       statusBarStyle: "default",
