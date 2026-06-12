@@ -324,7 +324,7 @@ function CreateTokenModal({
           </div>
 
           {created ? (
-            <div className="grid gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div className="flex items-start gap-2 rounded-md border border-accent/30 bg-accent-soft p-3 text-[12px] leading-5 text-foreground">
                 <CheckCircle className="mt-0.5 size-4 shrink-0 text-accent" />
                 <span>
@@ -338,7 +338,7 @@ function CreateTokenModal({
                   readOnly
                   value={created}
                   onFocus={(e) => e.currentTarget.select()}
-                  className="ui-input flex-1 font-mono text-[12px]"
+                  className="ui-input min-w-0 flex-1 font-mono text-[12px]"
                 />
                 <button
                   type="button"
@@ -353,11 +353,11 @@ function CreateTokenModal({
                   {copied ? "Copied" : "Copy"}
                 </button>
               </div>
-              <div className="rounded-md border border-border bg-surface p-3">
+              <div className="min-w-0 rounded-md border border-border bg-surface p-3">
                 <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
                   MCP client config (Claude, Cursor, …)
                 </p>
-                <pre className="mt-2 overflow-x-auto whitespace-pre font-mono text-[11px] leading-5 text-foreground">
+                <pre className="mt-2 max-w-full overflow-x-auto whitespace-pre font-mono text-[11px] leading-5 text-foreground">
                   {snippet}
                 </pre>
               </div>
