@@ -338,13 +338,16 @@ function buildFilterOptions(tasks: BoardTask[]) {
       noLabel += 1;
     }
 
-    if (task.assigneeId) {
+    if (task.assigneeId && task.assigneeName) {
+      // Only offer assignees that resolve to a current project member. A task
+      // assigned to someone since removed (no resolved name) isn't a useful
+      // filter and would otherwise show up as a duplicate "Assigned" row.
       const prev = assignee.get(task.assigneeId);
       assignee.set(task.assigneeId, {
-        name: task.assigneeName ?? "Assigned",
+        name: task.assigneeName,
         count: (prev?.count ?? 0) + 1,
       });
-    } else {
+    } else if (!task.assigneeId) {
       unassigned += 1;
     }
 
