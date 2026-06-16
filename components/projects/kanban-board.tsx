@@ -294,6 +294,16 @@ function taskMatchesFilters(
 
 type FilterOption = { value: string; label: string; sublabel?: string };
 
+// A dropdown is only worth showing when it offers a real choice — not just a
+// lone "No category"/"Unassigned"/"Untagged" sentinel (which happens on the
+// public board, whose data omits assignees and labels entirely).
+function hasRealOptions(options: FilterOption[]): boolean {
+  return options.some(
+    (option) =>
+      option.value !== NONE_VALUE && option.value !== UNTAGGED_PHASE_VALUE,
+  );
+}
+
 // Derive the option lists for each filter dropdown from the current task set,
 // each with a count, so a dimension with no values simply renders no options.
 function buildFilterOptions(tasks: BoardTask[]) {
@@ -456,7 +466,7 @@ function BoardFilters({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {options.phase.length ? (
+        {hasRealOptions(options.phase) ? (
           <SearchSelect
             className="w-40"
             options={options.phase}
@@ -467,7 +477,7 @@ function BoardFilters({
             clearLabel="All phases"
           />
         ) : null}
-        {options.category.length ? (
+        {hasRealOptions(options.category) ? (
           <SearchSelect
             className="w-40"
             options={options.category}
@@ -478,7 +488,7 @@ function BoardFilters({
             clearLabel="All categories"
           />
         ) : null}
-        {options.due.length ? (
+        {hasRealOptions(options.due) ? (
           <SearchSelect
             className="w-40"
             options={options.due}
@@ -489,7 +499,7 @@ function BoardFilters({
             clearLabel="Any due date"
           />
         ) : null}
-        {options.label.length ? (
+        {hasRealOptions(options.label) ? (
           <SearchSelect
             className="w-40"
             options={options.label}
@@ -500,7 +510,7 @@ function BoardFilters({
             clearLabel="All labels"
           />
         ) : null}
-        {options.priority.length ? (
+        {hasRealOptions(options.priority) ? (
           <SearchSelect
             className="w-36"
             options={options.priority}
@@ -511,7 +521,7 @@ function BoardFilters({
             clearLabel="All priorities"
           />
         ) : null}
-        {options.assignee.length ? (
+        {hasRealOptions(options.assignee) ? (
           <SearchSelect
             className="w-44"
             options={options.assignee}

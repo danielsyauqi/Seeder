@@ -28,6 +28,8 @@ export function ClientBoardTasks({
       <KanbanBoard
         projectId={projectId}
         readOnly
+        showFilters
+        previewLimit={5}
         tasks={tasks}
         onSelectTask={(task) =>
           setSelected(tasks.find((item) => item.id === task.id) ?? null)
