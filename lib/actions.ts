@@ -33,6 +33,11 @@ import {
 } from "@/lib/codes";
 import { getDb } from "@/lib/db";
 import {
+  createTaskCategory as createTaskCategoryService,
+  deleteTaskCategory as deleteTaskCategoryService,
+  updateTaskCategory as updateTaskCategoryService,
+} from "@/lib/services/categories";
+import {
   archiveProject as archiveProjectService,
   createProject as createProjectService,
   deleteProject as deleteProjectService,
@@ -1916,53 +1921,14 @@ const categoryDeleteSchema = z.object({
   categoryId: z.string().min(1),
 });
 
-async function assertCategoryAccess(categoryId: string, userId: string) {
-  const db = getDb();
-  const [row] = await db
-    .select({
-      id: taskCategories.id,
-      projectId: taskCategories.projectId,
-      name: taskCategories.name,
-      color: taskCategories.color,
-      ownerId: projects.ownerId,
-    })
-    .from(taskCategories)
-    .innerJoin(projects, eq(projects.id, taskCategories.projectId))
-    .where(eq(taskCategories.id, categoryId))
-    .limit(1);
-  if (!row) throw new Error("Category not found.");
-  if (row.ownerId !== userId) {
-    // Mirror the rest of the file: owner-only mutations for now.
-    throw new Error("Not authorized.");
-  }
-  return row;
-}
-
 export async function createTaskCategoryAction(formData: FormData) {
-  const session = await requireSession();
+  const viewer = await requireViewer();
   const payload = categoryCreateSchema.parse(toPayload(formData));
-  await assertProjectOwnership(payload.projectId, session.user.id);
 
-  const db = getDb();
-  const id = crypto.randomUUID();
-  const now = new Date();
-
-  try {
-    await db.insert(taskCategories).values({
-      id,
-      projectId: payload.projectId,
-      name: payload.name,
-      color: payload.color,
-      createdAt: now,
-      updatedAt: now,
-    });
-  } catch (error: unknown) {
-    // Unique (project_id, name) collision — surface a friendlier message.
-    if (error instanceof Error && /UNIQUE/i.test(error.message)) {
-      throw new Error(`A category named "${payload.name}" already exists.`);
-    }
-    throw error;
-  }
+  const { categoryId, name, color } = await createTaskCategoryService(
+    viewer,
+    payload,
+  );
 
   revalidateProjectViews(payload.projectId, {
     overview: true,
@@ -1970,40 +1936,17 @@ export async function createTaskCategoryAction(formData: FormData) {
     settings: true,
   });
 
-  return { id, name: payload.name, color: payload.color };
+  // The category-select client component reads `id` to update its local list.
+  return { id: categoryId, name, color };
 }
 
 export async function updateTaskCategoryAction(formData: FormData) {
-  const session = await requireSession();
+  const viewer = await requireViewer();
   const payload = categoryUpdateSchema.parse(toPayload(formData));
-  const category = await assertCategoryAccess(payload.categoryId, session.user.id);
 
-  const db = getDb();
-  const now = new Date();
-  try {
-    await db
-      .update(taskCategories)
-      .set({ name: payload.name, color: payload.color, updatedAt: now })
-      .where(eq(taskCategories.id, payload.categoryId));
-  } catch (error: unknown) {
-    if (error instanceof Error && /UNIQUE/i.test(error.message)) {
-      throw new Error(`A category named "${payload.name}" already exists.`);
-    }
-    throw error;
-  }
+  const { projectId } = await updateTaskCategoryService(viewer, payload);
 
-  // Keep the denormalized cache on tasks in sync so kanban displays
-  // immediately reflect a rename/recolor without joining.
-  await db
-    .update(tasks)
-    .set({
-      categoryName: payload.name,
-      categoryColor: payload.color,
-      updatedAt: now,
-    })
-    .where(eq(tasks.categoryId, payload.categoryId));
-
-  revalidateProjectViews(category.projectId, {
+  revalidateProjectViews(projectId, {
     overview: true,
     board: true,
     settings: true,
@@ -2011,25 +1954,12 @@ export async function updateTaskCategoryAction(formData: FormData) {
 }
 
 export async function deleteTaskCategoryAction(formData: FormData) {
-  const session = await requireSession();
+  const viewer = await requireViewer();
   const payload = categoryDeleteSchema.parse(toPayload(formData));
-  const category = await assertCategoryAccess(payload.categoryId, session.user.id);
 
-  const db = getDb();
-  const linked = await db
-    .select({ id: tasks.id })
-    .from(tasks)
-    .where(eq(tasks.categoryId, payload.categoryId))
-    .limit(1);
-  if (linked.length > 0) {
-    throw new Error(
-      "This category is still attached to one or more tasks. Reassign them first.",
-    );
-  }
+  const { projectId } = await deleteTaskCategoryService(viewer, payload);
 
-  await db.delete(taskCategories).where(eq(taskCategories.id, payload.categoryId));
-
-  revalidateProjectViews(category.projectId, {
+  revalidateProjectViews(projectId, {
     overview: true,
     board: true,
     settings: true,

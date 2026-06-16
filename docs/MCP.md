@@ -21,9 +21,9 @@ that user**, bounded by exactly the project access the user already has. Every
 change flows through the same code the web UI uses, so it lands in the project
 Activity feed identically.
 
-Tool surface today: **projects / tasks / client requests / task checklists /
-project members / workspace invites** (reads + writes). Daily-task *writes* are
-the only remaining piece deferred (see §11).
+Tool surface today: **projects / tasks / task categories / client requests /
+task checklists / project members / workspace invites** (reads + writes).
+Daily-task *writes* are the only remaining piece deferred (see §11).
 
 ---
 
@@ -51,14 +51,14 @@ AI client ──POST /api/mcp──▶  app/api/mcp/route.ts
         1. originAllowed(request)   → 403 if MCP_ALLOWED_ORIGINS set & Origin present-but-unlisted
         2. getViewerFromToken(req)  → { viewer, scope }  | 401 (JSON-RPC -32001) if invalid
         3. buildServer({viewer, scope})   (lib/mcp/server.ts)
-              · whoami + 10 read tools                (always)
-              · 27 write / management tools           (only if scope === "readwrite")
+              · whoami + 11 read tools                (always)
+              · 30 write / management tools           (only if scope === "readwrite")
         4. new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
         5. server.connect(transport); return transport.handleRequest(request)
                                               │
         tool handler ─────────────────────────┘
               · read  → lib/services/reads.ts   (viewer-scoped)
-              · write → lib/services/{tasks,checklist,requests,projects,members}.ts (viewer, input)
+              · write → lib/services/{tasks,checklist,categories,requests,projects,members}.ts (viewer, input)
                               │
                               ▼
               canAccessProject / getPersonalProjectIds  →  D1 (Drizzle)  →  logProjectActivity
@@ -86,6 +86,7 @@ components/app/app-sidebar.tsx               "API tokens" nav link (personal sec
 lib/services/_shared.ts                      shared mutation helpers + optionalText (NO "use server")
 lib/services/tasks.ts                        create/update/delete Task, updateTaskStatus + Zod input schemas
 lib/services/checklist.ts                    create/toggle/update/delete ChecklistItem + schemas
+lib/services/categories.ts                   list/create/update/delete TaskCategory + schemas (owner-only writes)
 lib/services/requests.ts                     create/update/delete Request + schemas
 lib/services/reads.ts                        listProjects/listTasks/readTask/listRequests/readRequest/search
 
@@ -171,8 +172,9 @@ Two layers, independent:
   - List reads (`list-projects`/`list-tasks`/`list-requests`) → scoped by
     `getPersonalProjectIds(viewer.id)` (projects owned **or** member of).
   - Project-filtered reads & single-entity reads (`read-task`/`read-request`/
-    `read-project-notes`) → gated by `canAccessProject(viewer, projectId)`; return
-    `null`/`[]` on a miss (never throw → no existence oracle).
+    `read-project-notes`/`list-task-categories`) → gated by
+    `canAccessProject(viewer, projectId)`; return `null`/`[]` on a miss (never
+    throw → no existence oracle).
   - `list-daily-tasks` is **personal-only** — always scoped to `viewer.id`, so a
     token can never read another user's day plan.
   - Writes → each service calls `assertProjectAccess(viewer, projectId)` first
@@ -182,7 +184,7 @@ Two layers, independent:
 
 ---
 
-## 7. Tool surface (38 tools)
+## 7. Tool surface (42 tools)
 
 **Read (always):**
 
@@ -194,6 +196,7 @@ Two layers, independent:
 | `read-task` | `{ projectId, taskId }` | task detail + checklist, or `null` |
 | `list-requests` | `{ projectId?, status? }` | request summaries (≤100) |
 | `read-request` | `{ projectId, requestId }` | request detail, or `null` |
+| `list-task-categories` | `{ projectId }` | a project's categories w/ task counts, or `[]` |
 | `search` | `{ query, limit? }` | cross-entity hits (≤50, max 100) |
 | `list-daily-tasks` | `{ date?, from?, to? }` | the viewer's own daily-plan items (≤100) |
 | `read-project-notes` | `{ projectId }` | project notes scratchpad, or `null` |
@@ -205,6 +208,8 @@ Two layers, independent:
 - **Tasks** — `create-task`, `update-task`, `update-task-status`, `delete-task`,
   `create-checklist-item`, `toggle-checklist-item`, `update-checklist-item`,
   `delete-checklist-item`.
+- **Task categories** — `create-task-category`, `update-task-category`,
+  `delete-task-category` (listing is the read-tool `list-task-categories`).
 - **Requests** — `create-request`, `update-request`, `delete-request`.
 - **Projects** — `create-project`, `update-project`, `set-project-key`,
   `set-project-color`, `archive-project`, `restore-project`, `duplicate-project`,
@@ -222,9 +227,14 @@ Conventions:
   (single source of truth with the web route's parser).
 - **Authz is per-domain, matching the web app**: task/request/checklist tools use
   member-aware `canAccessProject`; project-settings tools are owner-only
-  (`assertProjectManage`); member tools use `canManageProjectMembers`
-  (owner-or-admin); invite tools use `isAdminTier` (owner/admin, owner-only for
-  admin invites).
+  (`assertProjectManage`); **category writes are owner-only too** (only
+  `list-task-categories` is member-aware); member tools use
+  `canManageProjectMembers` (owner-or-admin); invite tools use `isAdminTier`
+  (owner/admin, owner-only for admin invites).
+- **`update-task-category` is a partial update** (unlike the full-replace task /
+  request / project updates): only the `name`/`color` you pass change, so a
+  rename can't silently recolor. A rename/recolor cascades to the denormalized
+  `categoryName`/`categoryColor` on every task already tagged with it.
 - Annotations: `destructiveHint: true` on deletes + `rotate-client-board-link`,
   `idempotentHint` where apt.
 - Descriptions instruct the agent to **confirm the change with the user before

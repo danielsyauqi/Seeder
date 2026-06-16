@@ -14,6 +14,16 @@ import type { Viewer } from "@/lib/auth-server";
 import type { TokenAuth } from "@/lib/auth-token";
 import { requestStatusValues, taskStatusValues } from "@/lib/db/schema";
 import {
+  createTaskCategory,
+  createTaskCategoryInputSchema,
+  deleteTaskCategory,
+  deleteTaskCategoryInputSchema,
+  listTaskCategories,
+  listTaskCategoriesInputSchema,
+  updateTaskCategory,
+  updateTaskCategoryInputSchema,
+} from "@/lib/services/categories";
+import {
   createChecklistItem,
   createChecklistItemInputSchema,
   deleteChecklistItem,
@@ -176,6 +186,18 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
       annotations: { readOnlyHint: true },
     },
     async (args) => jsonResult(await readTask(viewer, args)),
+  );
+
+  server.registerTool(
+    "list-task-categories",
+    {
+      title: "List task categories",
+      description:
+        "List a project's task categories (id, name, color, and how many tasks use each). Use this to find a categoryId before assigning one with create-task / update-task. Returns [] if you can't access the project. Read-only.",
+      inputSchema: listTaskCategoriesInputSchema.shape,
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => jsonResult(await listTaskCategories(viewer, args)),
   );
 
   server.registerTool(
@@ -411,6 +433,58 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
       },
     },
     async (args) => runWrite(() => deleteChecklistItem(viewer, args)),
+  );
+
+  // --- Task categories ------------------------------------------------------
+  // Reusable per-project labels. Listing is a read tool (list-task-categories);
+  // creating/editing/deleting is owner-only in the service, matching the web.
+
+  server.registerTool(
+    "create-task-category",
+    {
+      title: "Create task category",
+      description:
+        "Create a reusable task category (label + color swatch) in a project. Project owner only. CONFIRM the name and color with the user. Returns the new categoryId — pass it to create-task / update-task to tag a task. Names are unique per project.",
+      inputSchema: createTaskCategoryInputSchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args) => runWrite(() => createTaskCategory(viewer, args)),
+  );
+
+  server.registerTool(
+    "update-task-category",
+    {
+      title: "Update task category",
+      description:
+        "Rename or recolor a task category. Only the fields you pass change (omit one to keep it). The new name/color cascade to every task already tagged with it. Project owner only. CONFIRM with the user.",
+      inputSchema: updateTaskCategoryInputSchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => runWrite(() => updateTaskCategory(viewer, args)),
+  );
+
+  server.registerTool(
+    "delete-task-category",
+    {
+      title: "Delete task category",
+      description:
+        "Permanently delete a task category. Fails if any task still uses it — reassign or clear those tasks first. Project owner only. CONFIRM with the user — this cannot be undone.",
+      inputSchema: deleteTaskCategoryInputSchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args) => runWrite(() => deleteTaskCategory(viewer, args)),
   );
 
   server.registerTool(
