@@ -71,6 +71,7 @@ import {
   listRequests,
   listStatusUpdates,
   listTasks,
+  readProject,
   readProjectNotes,
   readRequest,
   readTask,
@@ -89,11 +90,14 @@ import {
   createTaskInputSchema,
   deleteTask,
   deleteTaskInputSchema,
+  setTaskCategory,
+  setTaskCategoryInputSchema,
   updateTask,
   updateTaskInputSchema,
   updateTaskStatus,
   updateTaskStatusInputSchema,
 } from "@/lib/services/tasks";
+import { PROJECT_SWATCHES } from "@/lib/swatches";
 
 function jsonResult(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -158,6 +162,18 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
       annotations: { readOnlyHint: true },
     },
     async (args) => jsonResult(await listProjects(viewer, args)),
+  );
+
+  server.registerTool(
+    "read-project",
+    {
+      title: "Read project",
+      description:
+        "Read one project's full record by id — name, client, summary, status, deadline, color, slug, archived, client-board state. Read this BEFORE update-project (a full replace) or set-project-color so you don't clobber fields. Returns null if it doesn't exist or you can't access it. Read-only.",
+      inputSchema: { projectId: z.string() },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => jsonResult(await readProject(viewer, args)),
   );
 
   server.registerTool(
@@ -280,6 +296,24 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
   );
 
   server.registerTool(
+    "list-color-swatches",
+    {
+      title: "List color swatches",
+      description:
+        "List the valid color swatches (value + label) accepted by set-project-color, create-project, and the task-category tools. Pass a swatch's `value` (a hex string) as the color. Read-only.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () =>
+      jsonResult({
+        swatches: PROJECT_SWATCHES.map((s) => ({
+          value: s.value,
+          label: s.label,
+        })),
+      }),
+  );
+
+  server.registerTool(
     "list-project-activity",
     {
       title: "List project activity",
@@ -354,6 +388,22 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
       },
     },
     async (args) => runWrite(() => updateTaskStatus(viewer, args)),
+  );
+
+  server.registerTool(
+    "set-task-category",
+    {
+      title: "Set task category",
+      description:
+        "Assign (or clear) a task's category WITHOUT touching its other fields — the partial-update analogue of update-task-status, so you don't need a full-replace update-task. Pass one task id or many for a bulk re-tag; omit categoryId to clear. Get a categoryId from list-task-categories (or create one with create-task-category). Returns which tasks updated and any that failed. CONFIRM with the user.",
+      inputSchema: setTaskCategoryInputSchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => runWrite(() => setTaskCategory(viewer, args)),
   );
 
   server.registerTool(
@@ -593,7 +643,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Set project color",
       description:
-        "Set or clear a project's color swatch (pass an empty string to clear). Owner only.",
+        "Set or clear a project's color swatch (pass an empty string to clear). Use list-color-swatches for the valid values. Owner only.",
       inputSchema: setProjectColorInputSchema.shape,
       annotations: {
         readOnlyHint: false,

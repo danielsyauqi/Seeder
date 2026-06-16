@@ -51,8 +51,8 @@ AI client ──POST /api/mcp──▶  app/api/mcp/route.ts
         1. originAllowed(request)   → 403 if MCP_ALLOWED_ORIGINS set & Origin present-but-unlisted
         2. getViewerFromToken(req)  → { viewer, scope }  | 401 (JSON-RPC -32001) if invalid
         3. buildServer({viewer, scope})   (lib/mcp/server.ts)
-              · whoami + 11 read tools                (always)
-              · 30 write / management tools           (only if scope === "readwrite")
+              · whoami + 13 read tools                (always)
+              · 31 write / management tools           (only if scope === "readwrite")
         4. new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
         5. server.connect(transport); return transport.handleRequest(request)
                                               │
@@ -171,10 +171,12 @@ Two layers, independent:
   `Viewer`, so it can never exceed what that user can do in the UI:
   - List reads (`list-projects`/`list-tasks`/`list-requests`) → scoped by
     `getPersonalProjectIds(viewer.id)` (projects owned **or** member of).
-  - Project-filtered reads & single-entity reads (`read-task`/`read-request`/
-    `read-project-notes`/`list-task-categories`) → gated by
+  - Project-filtered reads & single-entity reads (`read-project`/`read-task`/
+    `read-request`/`read-project-notes`/`list-task-categories`) → gated by
     `canAccessProject(viewer, projectId)`; return `null`/`[]` on a miss (never
     throw → no existence oracle).
+  - `list-color-swatches` is **static** (the swatch palette) — no project scope,
+    same result for everyone.
   - `list-daily-tasks` is **personal-only** — always scoped to `viewer.id`, so a
     token can never read another user's day plan.
   - Writes → each service calls `assertProjectAccess(viewer, projectId)` first
@@ -184,7 +186,7 @@ Two layers, independent:
 
 ---
 
-## 7. Tool surface (42 tools)
+## 7. Tool surface (45 tools)
 
 **Read (always):**
 
@@ -192,11 +194,13 @@ Two layers, independent:
 |---|---|---|
 | `whoami` | — | `{ id, name, email, role, scope }` |
 | `list-projects` | `{ includeArchived?, onlyArchived? }` | project summaries (≤100) |
+| `read-project` | `{ projectId }` | full project record (client, summary, deadline, color, slug, share state), or `null` |
 | `list-tasks` | `{ projectId?, status?, assignedToMe? }` | task summaries (≤100; use filters) |
 | `read-task` | `{ projectId, taskId }` | task detail + checklist, or `null` |
 | `list-requests` | `{ projectId?, status? }` | request summaries (≤100) |
 | `read-request` | `{ projectId, requestId }` | request detail, or `null` |
 | `list-task-categories` | `{ projectId }` | a project's categories w/ task counts, or `[]` |
+| `list-color-swatches` | — | the valid color swatches (`{ value, label }`) for project + category colors |
 | `search` | `{ query, limit? }` | cross-entity hits (≤50, max 100) |
 | `list-daily-tasks` | `{ date?, from?, to? }` | the viewer's own daily-plan items (≤100) |
 | `read-project-notes` | `{ projectId }` | project notes scratchpad, or `null` |
@@ -205,9 +209,9 @@ Two layers, independent:
 
 **Write / management (only with a `readwrite` token):**
 
-- **Tasks** — `create-task`, `update-task`, `update-task-status`, `delete-task`,
-  `create-checklist-item`, `toggle-checklist-item`, `update-checklist-item`,
-  `delete-checklist-item`.
+- **Tasks** — `create-task`, `update-task`, `update-task-status`,
+  `set-task-category`, `delete-task`, `create-checklist-item`,
+  `toggle-checklist-item`, `update-checklist-item`, `delete-checklist-item`.
 - **Task categories** — `create-task-category`, `update-task-category`,
   `delete-task-category` (listing is the read-tool `list-task-categories`).
 - **Requests** — `create-request`, `update-request`, `delete-request`.
@@ -245,6 +249,11 @@ Conventions:
 - `update-task-status` is a status-only convenience: it loads the row and
   delegates to `updateTask` so the move is diffed + activity-logged (no separate,
   unlogged path).
+- `set-task-category` is the same pattern for category-only (re)tagging — a
+  partial update that avoids the full-replace clobber. It takes `taskIds[]` (one
+  or many → bulk re-tag), validates the category once up front (a bad id fails
+  the whole call instead of silently clearing), then delegates each task to
+  `updateTask`; per-task failures are collected and returned, not fatal.
 - `add-project-member` adds an **existing** workspace user (by email or id); a
   brand-new person is brought in with `create-invite` first (returns a token +
   `acceptPath` to share as `<your-domain><acceptPath>`).

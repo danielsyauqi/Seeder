@@ -190,15 +190,15 @@ require project-owner or workspace-admin rights — the same gates as the UI. Al
 MCP-driven changes show in the project Activity feed, attributed to the token's
 user, exactly like changes made in the UI.
 
-**Read tools** (any token): `whoami`, `list-projects`, `list-tasks`, `read-task`,
-`list-requests`, `read-request`, `list-task-categories`, `search`,
-`list-daily-tasks`, `read-project-notes`, `list-project-activity`,
-`list-status-updates`.
+**Read tools** (any token): `whoami`, `list-projects`, `read-project`,
+`list-tasks`, `read-task`, `list-requests`, `read-request`,
+`list-task-categories`, `list-color-swatches`, `search`, `list-daily-tasks`,
+`read-project-notes`, `list-project-activity`, `list-status-updates`.
 
 **Read & write tools** (a `read & write` token also gets):
 
 - **Tasks** — `create/update/delete-task`, `update-task-status`,
-  `create/toggle/update/delete-checklist-item`.
+  `set-task-category`, `create/toggle/update/delete-checklist-item`.
 - **Task categories** — `create/update/delete-task-category` (owner-only).
 - **Requests** — `create/update/delete-request`.
 - **Projects** — `create-project`, `update-project`, `delete-project`,

@@ -354,3 +354,82 @@ export async function updateTaskStatus(
     assigneeId: existing.assigneeId ?? undefined,
   });
 }
+
+export const setTaskCategoryInputSchema = z.object({
+  projectId: z.string().min(1),
+  taskIds: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(200)
+    .describe(
+      "Task ids in this project to (re)tag — pass one to tag a single task, or many for a bulk re-tag.",
+    ),
+  categoryId: optionalText.describe(
+    "Category id to assign (get it from list-task-categories). Omit or pass an empty string to clear the tasks' category.",
+  ),
+});
+export type SetTaskCategoryInput = z.infer<typeof setTaskCategoryInputSchema>;
+
+// Partial, category-only (re)tag for one or many tasks — the convenience
+// analogue of update-task-status, so "just put this task in a category" doesn't
+// require a full-replace update-task (which would clobber omitted fields).
+// Validates the category once up front (a bad id fails the whole call rather
+// than silently clearing every task), then delegates each task to updateTask so
+// every change is diffed and activity-logged on the single update path. Per-task
+// failures are collected, not fatal, so one bad id can't abort a bulk re-tag.
+export async function setTaskCategory(
+  viewer: Viewer,
+  input: SetTaskCategoryInput,
+): Promise<{
+  category: { id: string; name: string; color: string | null } | null;
+  updated: string[];
+  failed: { taskId: string; error: string }[];
+}> {
+  await assertProjectAccess(viewer, input.projectId);
+
+  const categoryId = input.categoryId ? input.categoryId : undefined;
+  let category: { id: string; name: string; color: string | null } | null =
+    null;
+  if (categoryId) {
+    const resolved = await resolveCategory(categoryId, input.projectId);
+    if (!resolved.categoryId) {
+      throw new Error(
+        "Category not found in this project. Use list-task-categories to find a valid id.",
+      );
+    }
+    category = {
+      id: resolved.categoryId,
+      name: resolved.categoryName ?? "",
+      color: resolved.categoryColor,
+    };
+  }
+
+  const updated: string[] = [];
+  const failed: { taskId: string; error: string }[] = [];
+
+  for (const taskId of input.taskIds) {
+    try {
+      const existing = await assertTaskInProject(taskId, input.projectId);
+      await updateTask(viewer, {
+        taskId,
+        projectId: input.projectId,
+        title: existing.title,
+        description: existing.description ?? undefined,
+        categoryId, // new category, or undefined to clear
+        phase: existing.phase ?? undefined,
+        status: existing.status,
+        priority: existing.priority,
+        dueDate: existing.dueDate ? existing.dueDate.toISOString() : undefined,
+        assigneeId: existing.assigneeId ?? undefined,
+      });
+      updated.push(taskId);
+    } catch (error) {
+      failed.push({
+        taskId,
+        error: error instanceof Error ? error.message : "Update failed.",
+      });
+    }
+  }
+
+  return { category, updated, failed };
+}

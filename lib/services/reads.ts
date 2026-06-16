@@ -40,6 +40,23 @@ export type ProjectSummary = {
   archived: boolean;
 };
 
+export type ProjectDetail = {
+  id: string;
+  slug: string | null;
+  name: string;
+  clientName: string | null;
+  summary: string | null;
+  status: ProjectStatus;
+  deadline: string | null;
+  color: string | null;
+  archived: boolean;
+  clientShareEnabled: boolean;
+  clientBoardPath: string | null;
+  isOwner: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TaskSummary = {
   id: string;
   code: string | null;
@@ -147,6 +164,43 @@ export async function listProjects(
     status: p.status,
     archived: Boolean(p.archivedAt),
   }));
+}
+
+export async function readProject(
+  viewer: Viewer,
+  input: { projectId: string },
+): Promise<ProjectDetail | null> {
+  // Return the full editable record so an agent can round-trip the full-replace
+  // update-project / set-project-color / set-project-key safely. null on a miss
+  // (no existence oracle).
+  if (!(await canAccessProject(viewer, input.projectId))) return null;
+  const db = getDb();
+  const [project] = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
+    .limit(1);
+  if (!project) return null;
+
+  return {
+    id: project.id,
+    slug: project.slug,
+    name: project.name,
+    clientName: project.clientName,
+    summary: project.summary,
+    status: project.status,
+    deadline: project.deadline ? project.deadline.toISOString() : null,
+    color: project.color,
+    archived: Boolean(project.archivedAt),
+    clientShareEnabled: project.clientShareEnabled,
+    clientBoardPath:
+      project.clientShareEnabled && project.clientShareToken
+        ? `/client/${project.clientShareToken}`
+        : null,
+    isOwner: project.ownerId === viewer.id,
+    createdAt: project.createdAt.toISOString(),
+    updatedAt: project.updatedAt.toISOString(),
+  };
 }
 
 export async function listTasks(
