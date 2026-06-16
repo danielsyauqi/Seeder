@@ -384,7 +384,11 @@ function buildFilterOptions(tasks: BoardTask[]) {
   const priorityOrder: TaskPriority[] = ["high", "medium", "low"];
   const priorityOptions: FilterOption[] = priorityOrder
     .filter((p) => priority.has(p))
-    .map((p) => ({ value: p, label: p, sublabel: count(priority.get(p) ?? 0) }));
+    .map((p) => ({
+      value: p,
+      label: p.charAt(0).toUpperCase() + p.slice(1),
+      sublabel: count(priority.get(p) ?? 0),
+    }));
 
   const labelOptions: FilterOption[] = [
     ...Array.from(label.entries())
@@ -515,7 +519,7 @@ function BoardFilters({
         ) : null}
         {hasRealOptions(options.priority) ? (
           <SearchSelect
-            className="w-36"
+            className="w-44"
             options={options.priority}
             value={filters.priority}
             onChange={(value) => set({ priority: value })}
