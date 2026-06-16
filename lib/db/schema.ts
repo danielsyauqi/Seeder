@@ -354,6 +354,10 @@ export const tasks = sqliteTable(
       .default("medium"),
     dueDate: integer("due_date", { mode: "timestamp_ms" }),
     sortOrder: integer("sort_order").notNull().default(0),
+    // When the task last entered its current status column — set on create and
+    // refreshed on every status change / board drag. Powers the "in <status>
+    // since <date>" label on task cards. Nullable: backfilled to updatedAt.
+    statusChangedAt: integer("status_changed_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch() * 1000)`),
@@ -366,6 +370,7 @@ export const tasks = sqliteTable(
     index("tasks_owner_idx").on(table.ownerId),
     index("tasks_assignee_idx").on(table.assigneeId),
     index("tasks_status_sort_idx").on(table.status, table.sortOrder),
+    index("tasks_status_changed_at_idx").on(table.statusChangedAt),
     index("tasks_request_idx").on(table.requestId),
     index("tasks_category_idx").on(table.categoryId),
     uniqueIndex("tasks_project_code_idx")

@@ -24,6 +24,7 @@ import {
   ArrowSquareOut,
   CalendarDots,
   ChatCircleText,
+  Clock,
   DotsSixVertical,
   GitCommit,
   ListChecks,
@@ -57,10 +58,33 @@ export type BoardTask = {
   assigneeId?: string | null;
   assigneeName?: string | null;
   code?: string | null;
+  // ISO timestamp of when the task last entered its current status column.
+  statusChangedAt?: string | null;
   subtaskTotal?: number;
   subtaskDone?: number;
   commentCount?: number;
 };
+
+const statusLabel: Record<TaskStatus, string> = {
+  todo: "todo",
+  doing: "doing",
+  done: "done",
+};
+
+// Compact "entered this column on" date for the line above a card's title.
+function formatEnteredLabel(iso: string | null | undefined) {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return {
+    short: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    full: date.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }),
+  };
+}
 
 type KanbanBoardProps = {
   projectId: string;
@@ -315,6 +339,19 @@ function TaskCardSurface({
               {task.code}
             </p>
           ) : null}
+          {(() => {
+            const entered = formatEnteredLabel(task.statusChangedAt);
+            if (!entered) return null;
+            return (
+              <p
+                className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.06em] text-muted"
+                title={`In ${statusLabel[task.status]} since ${entered.full}`}
+              >
+                <Clock className="size-3" />
+                Since {entered.short}
+              </p>
+            );
+          })()}
           <h3 className="text-[13px] font-medium leading-snug text-foreground">
             {task.title}
           </h3>

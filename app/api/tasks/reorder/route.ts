@@ -59,8 +59,9 @@ export async function POST(request: Request) {
   for (const [status, ids] of orderedStatuses) {
     for (const [index, taskId] of ids.entries()) {
       const existingTask = taskMap.get(taskId);
+      const movedColumns = Boolean(existingTask && existingTask.status !== status);
 
-      if (existingTask && existingTask.status !== status) {
+      if (movedColumns && existingTask) {
         activityEntries.push({
           ownerId: viewer.id,
           projectId: payload.projectId,
@@ -79,6 +80,9 @@ export async function POST(request: Request) {
           status,
           sortOrder: index,
           updatedAt: now,
+          // Only refresh the column-entry stamp on an actual column change, so a
+          // pure within-column reorder doesn't reset "in <status> since".
+          ...(movedColumns ? { statusChangedAt: now } : {}),
         })
         .where(
           and(eq(tasks.id, taskId), eq(tasks.projectId, payload.projectId)),

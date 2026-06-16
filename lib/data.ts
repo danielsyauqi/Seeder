@@ -802,6 +802,8 @@ export async function getPublicProjectBoard(shareToken: string) {
           dueDate: tasks.dueDate,
           requestId: tasks.requestId,
           sortOrder: tasks.sortOrder,
+          statusChangedAt: tasks.statusChangedAt,
+          createdAt: tasks.createdAt,
           updatedAt: tasks.updatedAt,
         })
         .from(tasks)

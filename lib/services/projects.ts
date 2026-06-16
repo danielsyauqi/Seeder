@@ -663,6 +663,7 @@ export async function duplicateProject(
           priority: task.priority,
           dueDate: task.dueDate,
           sortOrder: task.sortOrder,
+          statusChangedAt: now,
           createdAt: now,
           updatedAt: now,
         };

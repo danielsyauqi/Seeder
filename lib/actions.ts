@@ -964,6 +964,7 @@ export async function convertRequestToTaskAction(formData: FormData) {
       priority: request.priority,
       status: "todo",
       sortOrder,
+      statusChangedAt: now,
       createdAt: now,
       updatedAt: now,
     });
@@ -1050,6 +1051,7 @@ export async function createTaskAction(formData: FormData) {
     dueDate: parseDate(payload.dueDate),
     status: "todo",
     sortOrder,
+    statusChangedAt: now,
     createdAt: now,
     updatedAt: now,
   });
@@ -1902,6 +1904,7 @@ export async function createDailyTaskAction(formData: FormData) {
         priority: payload.priority,
         status: "todo",
         sortOrder,
+        statusChangedAt: now,
         createdAt: now,
         updatedAt: now,
       });
@@ -2169,6 +2172,7 @@ export async function adminCreateDailyTaskForUsersAction(formData: FormData) {
         priority: payload.priority,
         status: "todo",
         sortOrder,
+        statusChangedAt: now,
         createdAt: now,
         updatedAt: now,
       });

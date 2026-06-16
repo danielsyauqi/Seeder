@@ -239,6 +239,7 @@ export function ProjectBoardSurface({
           return {
             ...task,
             dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+            statusChangedAt: (task.statusChangedAt ?? task.createdAt)?.toISOString() ?? null,
             hasStatusUpdate: publishedTaskIds.has(task.id),
             assigneeName: assignee?.name ?? null,
             code: formatTaskCode(workspace.project.slug, task.codeNumber),

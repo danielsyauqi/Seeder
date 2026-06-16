@@ -151,6 +151,7 @@ export async function createTask(
           dueDate,
           status: "todo",
           sortOrder,
+          statusChangedAt: now,
           createdAt: now,
           updatedAt: now,
         }),
@@ -187,10 +188,15 @@ export async function updateTask(
   await assertProjectAccess(viewer, input.projectId);
 
   const existingTask = await assertTaskInProject(input.taskId, input.projectId);
-  const nextSortOrder =
-    existingTask.status === input.status
-      ? existingTask.sortOrder
-      : await getNextTaskSortOrder(input.projectId, input.status);
+  const statusChanged = existingTask.status !== input.status;
+  const nextSortOrder = statusChanged
+    ? await getNextTaskSortOrder(input.projectId, input.status)
+    : existingTask.sortOrder;
+  // Stamp the moment the task enters a new column; keep the prior stamp on edits
+  // that don't move it (so the "in <status> since" label reflects the real move).
+  const nextStatusChangedAt = statusChanged
+    ? now
+    : existingTask.statusChangedAt ?? now;
   // Admins get a pass on re-validating an *unchanged* assignee, so they can edit
   // a task whose current assignee isn't a project member (never added, or since
   // removed) without being blocked on its title/status. Members don't: their
@@ -272,6 +278,7 @@ export async function updateTask(
         dueDate: nextDueDate,
         assigneeId,
         sortOrder: nextSortOrder,
+        statusChangedAt: nextStatusChangedAt,
         updatedAt: now,
       })
       .where(eq(tasks.id, input.taskId)),

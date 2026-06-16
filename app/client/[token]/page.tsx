@@ -171,6 +171,8 @@ export default async function ClientProjectBoardPage({
             tasks={publicBoard.tasks.map((task) => ({
               ...task,
               dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+              statusChangedAt:
+                (task.statusChangedAt ?? task.createdAt)?.toISOString() ?? null,
             }))}
           />
         </section>
