@@ -892,11 +892,16 @@ function StaticTaskColumn({
   // Cap the card list height (≈ 5 cards) and scroll the overflow in place,
   // instead of paging with a "Show more" button.
   scroll = false,
+  // True column total for the header badge. Defaults to items.length, but the
+  // preview passes the real total so a capped column (e.g. 5 of 52) still reads
+  // its actual count rather than the number of cards rendered.
+  count,
 }: {
   status: TaskStatus;
   items: BoardTask[];
   children: React.ReactNode;
   scroll?: boolean;
+  count?: number;
 }) {
   return (
     <section className="rounded-md border border-border bg-surface/60 px-3 py-3">
@@ -909,7 +914,7 @@ function StaticTaskColumn({
         >
           {statusCopy[status].label}
         </span>
-        <span className="font-mono text-[11px] text-muted">{items.length}</span>
+        <span className="font-mono text-[11px] text-muted">{count ?? items.length}</span>
       </div>
       <div
         className={cn(
@@ -1080,20 +1085,23 @@ export function KanbanBoard({
     matchedColumns.done.length;
 
   // Preview cap: only when a previewLimit is set, nothing is filtered, and the
-  // user hasn't expanded. Keep the first N cards in board order (todo → doing →
-  // done, each already sorted) but leave them grouped in their columns.
+  // user hasn't expanded. Cap EACH column to the top N (per column) so every
+  // status stays represented — a Todo-heavy project can't hide the Doing/Done
+  // columns. Column headers still show each column's true total (see below).
   const previewing = previewLimit != null && !isFiltered && !expanded;
   let displayColumns = matchedColumns;
   let hiddenCount = 0;
   if (previewing && previewLimit != null) {
-    const flat = columnOrder.flatMap((status) => matchedColumns[status]);
-    hiddenCount = Math.max(0, flat.length - previewLimit);
-    const keep = new Set(flat.slice(0, previewLimit).map((task) => task.id));
     displayColumns = {
-      todo: matchedColumns.todo.filter((task) => keep.has(task.id)),
-      doing: matchedColumns.doing.filter((task) => keep.has(task.id)),
-      done: matchedColumns.done.filter((task) => keep.has(task.id)),
+      todo: matchedColumns.todo.slice(0, previewLimit),
+      doing: matchedColumns.doing.slice(0, previewLimit),
+      done: matchedColumns.done.slice(0, previewLimit),
     };
+    hiddenCount = columnOrder.reduce(
+      (sum, status) =>
+        sum + (matchedColumns[status].length - displayColumns[status].length),
+      0,
+    );
   }
 
   // Drag is only live on the full, owner-owned, unfiltered, non-preview board.
@@ -1144,6 +1152,7 @@ export function KanbanBoard({
                 key={status}
                 status={status}
                 items={items}
+                count={matchedColumns[status].length}
                 scroll={scrollColumns}
               >
                 {items.length ? (
