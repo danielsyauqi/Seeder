@@ -63,6 +63,7 @@ import {
   restoreProject as restoreProjectService,
   rotateClientShareToken as rotateClientShareTokenService,
   setClientShare as setClientShareService,
+  setClientShareVisibility as setClientShareVisibilityService,
   setProjectColor as setProjectColorService,
   setProjectSlug as setProjectSlugService,
   updateProject as updateProjectService,
@@ -683,6 +684,30 @@ export async function rotateClientShareTokenAction(formData: FormData) {
       withFlash(
         safeReturnPath(payload.returnTo, `/projects/${payload.projectId}/settings`),
         "share-rotated",
+      ),
+    );
+  }
+}
+
+export async function setClientShareVisibilityAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = projectActionSchema.parse(toPayload(formData));
+
+  // Unchecked checkboxes are simply absent from the form body, so presence ===
+  // visible. The single form submits all three toggles together.
+  await setClientShareVisibilityService(viewer, {
+    projectId: payload.projectId,
+    showBoard: formData.get("showBoard") === "on",
+    showDescription: formData.get("showDescription") === "on",
+    showCommits: formData.get("showCommits") === "on",
+  });
+
+  revalidateProjectViews(payload.projectId, { settings: true, clientBoard: true });
+  if (payload.returnTo) {
+    redirect(
+      withFlash(
+        safeReturnPath(payload.returnTo, `/projects/${payload.projectId}/settings`),
+        "share-visibility",
       ),
     );
   }

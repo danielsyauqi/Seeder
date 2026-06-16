@@ -121,6 +121,24 @@ export const setClientShareInputSchema = z.object({
 });
 export type SetClientShareInput = z.infer<typeof setClientShareInputSchema>;
 
+export const setClientShareVisibilityInputSchema = z.object({
+  projectId: z.string().min(1),
+  showBoard: z
+    .boolean()
+    .describe("Show the whole task board on the public client view."),
+  showDescription: z
+    .boolean()
+    .describe(
+      "Allow clients to open a task and read its full description; when false, cards are not clickable.",
+    ),
+  showCommits: z
+    .boolean()
+    .describe("Show the commit-changes / status-update log on the public view."),
+});
+export type SetClientShareVisibilityInput = z.infer<
+  typeof setClientShareVisibilityInputSchema
+>;
+
 // --- Internal helpers --------------------------------------------------------
 
 /**
@@ -499,6 +517,48 @@ export async function setClientShare(
     enabled: false,
     shareToken: project.clientShareToken,
     clientBoardPath: null,
+  };
+}
+
+export async function setClientShareVisibility(
+  viewer: Viewer,
+  input: SetClientShareVisibilityInput,
+): Promise<{
+  projectId: string;
+  showBoard: boolean;
+  showDescription: boolean;
+  showCommits: boolean;
+}> {
+  const db = getDb();
+  const project = await assertProjectManage(viewer, input.projectId);
+  const now = new Date();
+
+  await db
+    .update(projects)
+    .set({
+      clientShareShowBoard: input.showBoard,
+      clientShareShowDescription: input.showDescription,
+      clientShareShowCommits: input.showCommits,
+      updatedAt: now,
+    })
+    .where(eq(projects.id, input.projectId));
+
+  await logProjectActivity(db, {
+    ownerId: viewer.id,
+    projectId: input.projectId,
+    entityType: "project",
+    entityId: input.projectId,
+    action: "updated",
+    label: "Updated client board visibility",
+    detail: project.name,
+    createdAt: now,
+  });
+
+  return {
+    projectId: input.projectId,
+    showBoard: input.showBoard,
+    showDescription: input.showDescription,
+    showCommits: input.showCommits,
   };
 }
 

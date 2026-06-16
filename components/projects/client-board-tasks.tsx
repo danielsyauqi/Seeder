@@ -17,9 +17,13 @@ import { KanbanBoard } from "@/components/projects/kanban-board";
 export function ClientBoardTasks({
   projectId,
   tasks,
+  // When false (owner hid full task descriptions), cards are not clickable and
+  // no detail modal opens — clicking a card returns nothing.
+  allowTaskDetail = true,
 }: {
   projectId: string;
   tasks: ClientTask[];
+  allowTaskDetail?: boolean;
 }) {
   const [selected, setSelected] = useState<ClientTask | null>(null);
 
@@ -31,11 +35,16 @@ export function ClientBoardTasks({
         showFilters
         previewLimit={5}
         tasks={tasks}
-        onSelectTask={(task) =>
-          setSelected(tasks.find((item) => item.id === task.id) ?? null)
+        onSelectTask={
+          allowTaskDetail
+            ? (task) =>
+                setSelected(tasks.find((item) => item.id === task.id) ?? null)
+            : undefined
         }
       />
-      <ClientTaskModal task={selected} onClose={() => setSelected(null)} />
+      {allowTaskDetail ? (
+        <ClientTaskModal task={selected} onClose={() => setSelected(null)} />
+      ) : null}
     </>
   );
 }

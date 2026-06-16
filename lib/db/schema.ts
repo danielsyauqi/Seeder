@@ -235,6 +235,21 @@ export const projects = sqliteTable(
       .notNull()
       .default(false),
     clientShareToken: text("client_share_token"),
+    // Per-project visibility toggles for the public client board. Default true
+    // so existing boards keep showing everything; owners can hide each section.
+    clientShareShowBoard: integer("client_share_show_board", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    clientShareShowDescription: integer("client_share_show_description", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(true),
+    clientShareShowCommits: integer("client_share_show_commits", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(true),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch() * 1000)`),

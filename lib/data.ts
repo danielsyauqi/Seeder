@@ -766,6 +766,9 @@ export async function getPublicProjectBoard(shareToken: string) {
       deadline: projects.deadline,
       updatedAt: projects.updatedAt,
       archivedAt: projects.archivedAt,
+      showBoard: projects.clientShareShowBoard,
+      showDescription: projects.clientShareShowDescription,
+      showCommits: projects.clientShareShowCommits,
     })
     .from(projects)
     // The board is private until the owner enables it, and is addressed by a
@@ -860,13 +863,25 @@ export async function getPublicProjectBoard(shareToken: string) {
     })),
   }));
 
+  // Apply the owner's public-view toggles at the data layer so hidden sections
+  // never reach the client payload, not just the render. A hidden board sends no
+  // tasks; a hidden description strips the body from every task; hidden commits
+  // send no status log.
+  const visibleTasks = project.showBoard
+    ? project.showDescription
+      ? publicTasks
+      : publicTasks.map((task) => ({ ...task, description: null }))
+    : [];
+
   return {
     project,
-    tasks: publicTasks,
-    statusUpdates: statusUpdates.map((update) => ({
-      ...update,
-      taskTitle: taskMap.get(update.taskId)?.title ?? "Completed task",
-    })),
+    tasks: visibleTasks,
+    statusUpdates: project.showCommits
+      ? statusUpdates.map((update) => ({
+          ...update,
+          taskTitle: taskMap.get(update.taskId)?.title ?? "Completed task",
+        }))
+      : [],
   };
 }
 

@@ -61,6 +61,8 @@ export default async function ClientProjectBoardPage({
     notFound();
   }
 
+  const { showBoard, showDescription, showCommits } = publicBoard.project;
+
   const taskCounts = {
     todo: publicBoard.tasks.filter((task) => task.status === "todo").length,
     doing: publicBoard.tasks.filter((task) => task.status === "doing").length,
@@ -123,22 +125,26 @@ export default async function ClientProjectBoardPage({
             </div>
 
             <div className="ui-panel-soft grid gap-3 px-4 py-3 sm:min-w-60">
-              <div>
-                <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                  Todo
-                </p>
-                <p className="mt-1 font-mono text-base font-medium text-foreground">
-                  {taskCounts.todo}
-                </p>
-              </div>
-              <div>
-                <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                  Doing
-                </p>
-                <p className="mt-1 font-mono text-base font-medium text-foreground">
-                  {taskCounts.doing}
-                </p>
-              </div>
+              {showBoard ? (
+                <>
+                  <div>
+                    <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                      Todo
+                    </p>
+                    <p className="mt-1 font-mono text-base font-medium text-foreground">
+                      {taskCounts.todo}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                      Doing
+                    </p>
+                    <p className="mt-1 font-mono text-base font-medium text-foreground">
+                      {taskCounts.doing}
+                    </p>
+                  </div>
+                </>
+              ) : null}
               <div className="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
                 <CalendarDots className="size-3.5" />
                 Updated {publicBoard.project.updatedAt.toLocaleDateString()}
@@ -147,56 +153,61 @@ export default async function ClientProjectBoardPage({
           </div>
         </section>
 
-        <section className="ui-panel p-5 sm:p-6">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                Board
-              </p>
-              <h2 className="mt-1 text-[17px] font-medium tracking-[-0.022em] text-foreground">
-                Current project board
-              </h2>
-              <p className="mt-1 max-w-2xl text-[13px] leading-6 text-muted">
-                Read-only view of the current task flow.
-              </p>
+        {showBoard ? (
+          <section className="ui-panel p-5 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                  Board
+                </p>
+                <h2 className="mt-1 text-[17px] font-medium tracking-[-0.022em] text-foreground">
+                  Current project board
+                </h2>
+                <p className="mt-1 max-w-2xl text-[13px] leading-6 text-muted">
+                  Read-only view of the current task flow.
+                </p>
+              </div>
+
+              <Link href="/sign-in" className="ui-button-secondary">
+                Owner sign in
+              </Link>
             </div>
 
-            <Link href="/sign-in" className="ui-button-secondary">
-              Owner sign in
-            </Link>
-          </div>
+            <ClientBoardTasks
+              projectId={publicBoard.project.id}
+              allowTaskDetail={showDescription}
+              tasks={publicBoard.tasks.map((task) => ({
+                ...task,
+                dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+                statusChangedAt:
+                  (task.statusChangedAt ?? task.createdAt)?.toISOString() ?? null,
+              }))}
+            />
+          </section>
+        ) : null}
 
-          <ClientBoardTasks
-            projectId={publicBoard.project.id}
-            tasks={publicBoard.tasks.map((task) => ({
-              ...task,
-              dueDate: task.dueDate ? task.dueDate.toISOString() : null,
-              statusChangedAt:
-                (task.statusChangedAt ?? task.createdAt)?.toISOString() ?? null,
-            }))}
-          />
-        </section>
-
-        <section className="ui-panel p-5 sm:p-6">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                Updates
-              </p>
-              <h2 className="mt-1 text-[17px] font-medium tracking-[-0.022em] text-foreground">
-                Client status log
-              </h2>
-              <p className="mt-1 max-w-2xl text-[13px] leading-6 text-muted">
-                Published notes from completed tasks, formatted like a clean commit history.
-              </p>
+        {showCommits ? (
+          <section className="ui-panel p-5 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+                  Updates
+                </p>
+                <h2 className="mt-1 text-[17px] font-medium tracking-[-0.022em] text-foreground">
+                  Client status log
+                </h2>
+                <p className="mt-1 max-w-2xl text-[13px] leading-6 text-muted">
+                  Published notes from completed tasks, formatted like a clean commit history.
+                </p>
+              </div>
+              <span className="ui-badge">
+                {publicBoard.statusUpdates.length} updates
+              </span>
             </div>
-            <span className="ui-badge">
-              {publicBoard.statusUpdates.length} updates
-            </span>
-          </div>
 
-          <ClientStatusUpdates updates={formattedUpdates} />
-        </section>
+            <ClientStatusUpdates updates={formattedUpdates} />
+          </section>
+        ) : null}
       </div>
     </main>
   );

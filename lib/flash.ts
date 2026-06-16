@@ -23,6 +23,7 @@ export const FLASH_MESSAGES: Record<
   "share-enabled": { message: "Client board published", variant: "success" },
   "share-disabled": { message: "Client board made private", variant: "success" },
   "share-rotated": { message: "Client link rotated", variant: "success" },
+  "share-visibility": { message: "Client view updated", variant: "success" },
   "note-saved": { message: "Note saved", variant: "success" },
   "status-published": { message: "Client update published", variant: "success" },
   "status-removed": { message: "Client update deleted", variant: "success" },

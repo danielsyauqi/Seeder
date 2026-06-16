@@ -26,6 +26,7 @@ import {
   enableClientShareAction,
   restoreProjectAction,
   rotateClientShareTokenAction,
+  setClientShareVisibilityAction,
 } from "@/lib/actions";
 import type { ProjectWorkspace } from "@/lib/data";
 import { serverEnv } from "@/lib/env";
@@ -728,7 +729,75 @@ export function ProjectSettingsSurface({
           </div>
         </div>
       </SectionFrame>
+
+      {shareEnabled ? (
+        <SectionFrame>
+          <SectionHeader
+            eyebrow="Client view"
+            title="Public view options"
+            description="Choose what clients see on the shared board link. Hidden sections never reach the public page."
+          />
+          <form action={setClientShareVisibilityAction} className="space-y-3">
+            <input type="hidden" name="projectId" value={workspace.project.id} />
+            <input type="hidden" name="returnTo" value={currentPath} />
+            <ClientVisibilityToggle
+              name="showBoard"
+              title="Task board"
+              description="Show the whole task board. Hiding it leaves only the project summary and updates."
+              defaultChecked={workspace.project.clientShareShowBoard}
+            />
+            <ClientVisibilityToggle
+              name="showDescription"
+              title="Full task description"
+              description="Let clients open a task to read its full description. When hidden, cards are not clickable."
+              defaultChecked={workspace.project.clientShareShowDescription}
+            />
+            <ClientVisibilityToggle
+              name="showCommits"
+              title="Commit changes"
+              description="Show the published status-update log (commit history) on the public page."
+              defaultChecked={workspace.project.clientShareShowCommits}
+            />
+            <div className="pt-1">
+              <button type="submit" className="ui-button-secondary">
+                Save public view
+              </button>
+            </div>
+          </form>
+        </SectionFrame>
+      ) : null}
     </div>
+  );
+}
+
+function ClientVisibilityToggle({
+  name,
+  title,
+  description,
+  defaultChecked,
+}: {
+  name: string;
+  title: string;
+  description: string;
+  defaultChecked: boolean;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-surface px-4 py-3 transition hover:border-border-strong">
+      <input
+        type="checkbox"
+        name={name}
+        defaultChecked={defaultChecked}
+        className="mt-0.5 size-4 accent-accent"
+      />
+      <span className="space-y-1">
+        <span className="block text-[14px] font-medium text-foreground">
+          {title}
+        </span>
+        <span className="block text-[13px] leading-6 text-muted">
+          {description}
+        </span>
+      </span>
+    </label>
   );
 }
 
