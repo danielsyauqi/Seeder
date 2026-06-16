@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 
 import { CategoryManager } from "@/components/projects/category-manager";
+import { LabelManager } from "@/components/projects/label-manager";
 import { KanbanBoard } from "@/components/projects/kanban-board";
 import { ProjectColorPicker } from "@/components/projects/project-color-picker";
 import { ProjectSlugForm } from "@/components/projects/project-slug-form";
@@ -530,6 +531,25 @@ export function ProjectSettingsSurface({
             color: category.color,
             taskCount: workspace.tasks.filter(
               (task) => task.categoryId === category.id,
+            ).length,
+          }))}
+        />
+      </SectionFrame>
+
+      <SectionFrame>
+        <SectionHeader
+          eyebrow="Taxonomy"
+          title="Task labels"
+          description="Multi-assign tags for tasks — a task can carry several. Independent of categories; assign them from the task modal. Deleting a label untags it everywhere."
+        />
+        <LabelManager
+          projectId={workspace.project.id}
+          labels={workspace.labels.map((label) => ({
+            id: label.id,
+            name: label.name,
+            color: label.color,
+            taskCount: workspace.tasks.filter((task) =>
+              (task.labels ?? []).some((l) => l.id === label.id),
             ).length,
           }))}
         />

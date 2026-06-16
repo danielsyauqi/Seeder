@@ -33,6 +33,8 @@ import {
   taskCategories,
   taskChecklistItems,
   taskComments,
+  taskLabels,
+  taskTaskLabels,
   tasks,
   user,
 } from "@/lib/db/schema";
@@ -943,6 +945,8 @@ export async function getProjectWorkspace(
     taskCommentRows,
     requestCommentRows,
     categoryRows,
+    labelRows,
+    taskLabelRows,
   ] = await Promise.all([
     db
       .select()
@@ -1048,7 +1052,38 @@ export async function getProjectWorkspace(
       .from(taskCategories)
       .where(eq(taskCategories.projectId, projectId))
       .orderBy(asc(taskCategories.name)),
+    db
+      .select()
+      .from(taskLabels)
+      .where(eq(taskLabels.projectId, projectId))
+      .orderBy(asc(taskLabels.name)),
+    db
+      .select({
+        taskId: taskTaskLabels.taskId,
+        id: taskLabels.id,
+        name: taskLabels.name,
+        color: taskLabels.color,
+      })
+      .from(taskTaskLabels)
+      .innerJoin(taskLabels, eq(taskLabels.id, taskTaskLabels.labelId))
+      .where(eq(taskLabels.projectId, projectId))
+      .orderBy(asc(taskLabels.name)),
   ]);
+
+  // Group label memberships by task so each board task carries its labels.
+  const labelsByTask = new Map<
+    string,
+    Array<{ id: string; name: string; color: string }>
+  >();
+  for (const row of taskLabelRows) {
+    const list = labelsByTask.get(row.taskId) ?? [];
+    list.push({ id: row.id, name: row.name, color: row.color });
+    labelsByTask.set(row.taskId, list);
+  }
+  const tasksWithLabels = boardTasks.map((task) => ({
+    ...task,
+    labels: labelsByTask.get(task.id) ?? [],
+  }));
   const activity = buildRecentActivity([project], activityRows, {
     includeArchived: true,
     limit: 8,
@@ -1075,7 +1110,7 @@ export async function getProjectWorkspace(
   return {
     project,
     requests,
-    tasks: boardTasks,
+    tasks: tasksWithLabels,
     checklistItems,
     statusUpdates,
     note: notes[0] ?? null,
@@ -1084,6 +1119,7 @@ export async function getProjectWorkspace(
     taskComments: taskCommentRows,
     requestComments: requestCommentRows,
     categories: categoryRows,
+    labels: labelRows,
   };
 }
 

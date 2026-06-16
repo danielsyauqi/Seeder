@@ -31,6 +31,7 @@ import {
   updateProjectAction,
 } from "@/lib/actions";
 import { CategorySelect } from "@/components/projects/category-select";
+import { LabelSelect } from "@/components/projects/label-select";
 import { CommentThread } from "@/components/projects/comment-thread";
 import { RichTextField } from "@/components/rich-text/rich-text-field";
 import { RichTextRenderer } from "@/components/rich-text";
@@ -1251,6 +1252,18 @@ function ProjectWorkspaceModalHost({
                   projectId={workspace.project.id}
                   categories={workspace.categories}
                   defaultValue={selectedTask.categoryId}
+                />
+              </div>
+
+              <div className="grid gap-1.5">
+                <span className="text-[12px] font-medium text-foreground">
+                  Labels <span className="text-muted">(saved instantly)</span>
+                </span>
+                <LabelSelect
+                  projectId={workspace.project.id}
+                  taskId={selectedTask.id}
+                  labels={workspace.labels}
+                  defaultValues={(selectedTask.labels ?? []).map((l) => l.id)}
                 />
               </div>
 

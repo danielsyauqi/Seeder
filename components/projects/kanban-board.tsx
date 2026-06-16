@@ -46,6 +46,7 @@ export type BoardTask = {
   description: string | null;
   categoryName: string | null;
   categoryColor: string | null;
+  labels?: { id: string; name: string; color: string }[];
   phase: string | null;
   hasStatusUpdate?: boolean;
   status: TaskStatus;
@@ -274,6 +275,24 @@ function TaskCardSurface({
                 {task.categoryName}
               </span>
             ) : null}
+            {(task.labels ?? []).map((label) => (
+              <span
+                key={label.id}
+                className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-medium text-foreground"
+                style={{
+                  backgroundColor: `${label.color}26`,
+                  border: `1px solid ${label.color}66`,
+                }}
+                title="Label"
+              >
+                <span
+                  aria-hidden
+                  className="inline-block size-1.5 rounded-full"
+                  style={{ backgroundColor: label.color }}
+                />
+                {label.name}
+              </span>
+            ))}
             {task.phase ? (
               <span
                 className="inline-flex rounded-sm border border-border bg-surface-strong px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted"
