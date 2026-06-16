@@ -10,7 +10,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 
-import { createTaskLabelAction, setTaskLabelsAction } from "@/lib/actions";
+import { createTaskLabelAction } from "@/lib/actions";
 import { PROJECT_SWATCHES } from "@/lib/swatches";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -21,17 +21,18 @@ export type LabelOption = {
   color: string;
 };
 
-// Multi-select label picker for the task modal. Unlike the (form-submitted)
-// category picker, this persists immediately via setTaskLabelsAction whenever the
-// set changes — labels live in a join table, decoupled from the task save form.
+// Multi-select label picker for the task create/edit forms. It writes the chosen
+// set into a hidden `name` field as a comma-separated id list; the workspace
+// route reads that alongside the task payload and persists it via setTaskLabels.
+// A task can carry many labels, and new labels can be created inline.
 export function LabelSelect({
+  name,
   projectId,
-  taskId,
   labels,
   defaultValues,
 }: {
+  name: string;
   projectId: string;
-  taskId: string;
   labels: LabelOption[];
   defaultValues: string[];
 }) {
@@ -60,32 +61,12 @@ export function LabelSelect({
   );
   const canCreate = trimmedQuery.length > 0 && !exactMatch;
 
-  // Replace the task's label set; revert local state if the write fails.
-  function persist(next: string[], previous: string[]) {
-    const formData = new FormData();
-    formData.set("projectId", projectId);
-    formData.set("taskId", taskId);
-    formData.set("labelIds", next.join(","));
-    startTransition(async () => {
-      try {
-        await setTaskLabelsAction(formData);
-      } catch (error: unknown) {
-        setSelected(previous);
-        toast(
-          error instanceof Error ? error.message : "Could not update labels",
-          "danger",
-        );
-      }
-    });
-  }
-
   function toggle(id: string) {
-    const previous = selected;
-    const next = previous.includes(id)
-      ? previous.filter((value) => value !== id)
-      : [...previous, id];
-    setSelected(next);
-    persist(next, previous);
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id],
+    );
   }
 
   function submitCreate() {
@@ -105,10 +86,7 @@ export function LabelSelect({
         setLocalLabels((current) =>
           [...current, created].sort((a, b) => a.name.localeCompare(b.name)),
         );
-        const previous = selected;
-        const next = [...previous, created.id];
-        setSelected(next);
-        persist(next, previous);
+        setSelected((current) => [...current, created.id]);
         toast(`Created label "${created.name}"`, "success");
         setQuery("");
         setIsCreating(false);
@@ -123,6 +101,8 @@ export function LabelSelect({
 
   return (
     <div ref={rootRef} className="relative">
+      <input type="hidden" name={name} value={selected.join(",")} />
+
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -148,12 +128,7 @@ export function LabelSelect({
         ) : (
           <span className="text-muted">No labels</span>
         )}
-        <span className="inline-flex items-center gap-1">
-          {isPending ? (
-            <CircleNotch className="size-3.5 animate-spin text-muted" />
-          ) : null}
-          <CaretDown className="size-4 text-muted" />
-        </span>
+        <CaretDown className="size-4 text-muted" />
       </button>
 
       {open ? (

@@ -20,6 +20,7 @@ import {
   updateRequest,
   updateRequestInputSchema,
 } from "@/lib/services/requests";
+import { setTaskLabels } from "@/lib/services/labels";
 import {
   createTask,
   createTaskInputSchema,
@@ -52,6 +53,25 @@ const workspaceMutationSchema = z.discriminatedUnion("action", [
   updateRequestInputSchema.extend({ action: z.literal("update-request") }),
   deleteRequestInputSchema.extend({ action: z.literal("delete-request") }),
 ]);
+
+// Labels are many-to-many (a join table), so they ride alongside the task
+// create/update payload rather than living on the task schema: the form submits
+// them as a comma-separated `labelIds` field (kept out of the discriminated
+// union, which would strip it). `undefined` = not provided (leave labels
+// untouched, e.g. an MCP call); a present value (even empty) replaces the set.
+function readLabelIds(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) {
+    return value.filter((v): v is string => typeof v === "string");
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+  }
+  return undefined;
+}
 
 function revalidateProjectViews(
   projectId: string,
@@ -104,10 +124,19 @@ export async function POST(request: Request) {
   }
 
   try {
-    const payload = workspaceMutationSchema.parse(await request.json());
+    const body = (await request.json()) as Record<string, unknown>;
+    const payload = workspaceMutationSchema.parse(body);
 
     if (payload.action === "create-task") {
       const { taskId } = await createTask(viewer, payload);
+      const labelIds = readLabelIds(body.labelIds);
+      if (labelIds) {
+        await setTaskLabels(viewer, {
+          projectId: payload.projectId,
+          taskId,
+          labelIds,
+        });
+      }
       revalidateProjectViews(payload.projectId, {
         projects: true,
         today: true,
@@ -120,6 +149,14 @@ export async function POST(request: Request) {
 
     if (payload.action === "update-task") {
       const { taskId } = await updateTask(viewer, payload);
+      const labelIds = readLabelIds(body.labelIds);
+      if (labelIds) {
+        await setTaskLabels(viewer, {
+          projectId: payload.projectId,
+          taskId,
+          labelIds,
+        });
+      }
       revalidateProjectViews(payload.projectId, {
         projects: true,
         today: true,

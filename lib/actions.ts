@@ -48,7 +48,6 @@ import {
 import {
   createTaskLabel as createTaskLabelService,
   deleteTaskLabel as deleteTaskLabelService,
-  setTaskLabels as setTaskLabelsService,
   updateTaskLabel as updateTaskLabelService,
 } from "@/lib/services/labels";
 import { writeProjectNote as writeProjectNoteService } from "@/lib/services/notes";
@@ -1664,24 +1663,6 @@ const labelDeleteSchema = z.object({
   labelId: z.string().min(1),
 });
 
-// The label-select submits the full set as a single comma-separated hidden field
-// (FormData/toPayload keeps only the last value for a repeated name).
-const setTaskLabelsSchema = z.object({
-  projectId: z.string().min(1),
-  taskId: z.string().min(1),
-  labelIds: z
-    .string()
-    .optional()
-    .transform((value) =>
-      value
-        ? value
-            .split(",")
-            .map((id) => id.trim())
-            .filter(Boolean)
-        : [],
-    ),
-});
-
 export async function createTaskLabelAction(formData: FormData) {
   const viewer = await requireViewer();
   const payload = labelCreateSchema.parse(toPayload(formData));
@@ -1722,15 +1703,6 @@ export async function deleteTaskLabelAction(formData: FormData) {
     board: true,
     settings: true,
   });
-}
-
-export async function setTaskLabelsAction(formData: FormData) {
-  const viewer = await requireViewer();
-  const payload = setTaskLabelsSchema.parse(toPayload(formData));
-
-  await setTaskLabelsService(viewer, payload);
-
-  revalidateProjectViews(payload.projectId, { overview: true, board: true });
 }
 
 // ---- Notifications ----------------------------------------------------------

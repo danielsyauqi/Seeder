@@ -400,11 +400,11 @@ remote MCP can bridge with [`mcp-remote`](https://www.npmjs.com/package/mcp-remo
   (Project writes, members, invites, categories, **labels, comments, project
   notes, and client status updates** have all shipped — extracted to
   `lib/services/*` and gated to match the web; see §7.)
-- **Labels at task-create time in the web UI** — the web new-task form doesn't yet
-  carry a label picker (labels are assigned from the task modal, which persists via
-  `setTaskLabelsAction`); MCP `create-task` + `add-task-label` already covers the
-  import flow. Threading `labelIds` through the `/api/workspace` create/update path
-  would close the in-app gap.
+  (The web new-task and edit-task forms now carry a label picker too: it submits a
+  comma-separated `labelIds` field, which the `/api/workspace` route reads and
+  applies via `setTaskLabels` after create/update. MCP `create-task` /
+  `update-task` simply omit `labelIds`, leaving labels untouched — assign them with
+  `add-task-label` instead.)
 - **`lib/actions.ts` helper de-dup** — it has byte-identical copies of
   `parseDate` / `touchProject` / `nextTaskCodeNumber` / etc. now in
   `lib/services/_shared.ts`; importing the shared ones is pure cleanup.

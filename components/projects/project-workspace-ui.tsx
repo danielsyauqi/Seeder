@@ -201,6 +201,7 @@ function NewTaskForm({
     description: string;
     requestId: string;
     categoryId: string;
+    labelIds: string;
     phase: string;
     priority: string;
     dueDate: string;
@@ -254,6 +255,7 @@ function NewTaskForm({
           description: getFormValue(formData, "description"),
           requestId: getFormValue(formData, "requestId"),
           categoryId: getFormValue(formData, "categoryId"),
+          labelIds: getFormValue(formData, "labelIds"),
           phase: getFormValue(formData, "phase"),
           priority: getFormValue(formData, "priority"),
           dueDate: getFormValue(formData, "dueDate"),
@@ -315,6 +317,16 @@ function NewTaskForm({
               name="categoryId"
               projectId={workspace.project.id}
               categories={workspace.categories}
+            />
+          </div>
+
+          <div className="grid gap-1.5">
+            <span className="text-[12px] font-medium text-foreground">Labels</span>
+            <LabelSelect
+              name="labelIds"
+              projectId={workspace.project.id}
+              labels={workspace.labels}
+              defaultValues={[]}
             />
           </div>
 
@@ -950,6 +962,7 @@ function ProjectWorkspaceModalHost({
               title: getFormValue(formData, "title"),
               description: getFormValue(formData, "description"),
               categoryId: getFormValue(formData, "categoryId"),
+              labelIds: getFormValue(formData, "labelIds"),
               phase: getFormValue(formData, "phase"),
               status: getFormValue(formData, "status"),
               priority: getFormValue(formData, "priority"),
@@ -1256,12 +1269,10 @@ function ProjectWorkspaceModalHost({
               </div>
 
               <div className="grid gap-1.5">
-                <span className="text-[12px] font-medium text-foreground">
-                  Labels <span className="text-muted">(saved instantly)</span>
-                </span>
+                <span className="text-[12px] font-medium text-foreground">Labels</span>
                 <LabelSelect
+                  name="labelIds"
                   projectId={workspace.project.id}
-                  taskId={selectedTask.id}
                   labels={workspace.labels}
                   defaultValues={(selectedTask.labels ?? []).map((l) => l.id)}
                 />
