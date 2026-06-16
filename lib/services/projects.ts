@@ -232,6 +232,9 @@ export async function createProject(
     deadline: parseDate(input.deadline),
     color: input.color ? input.color : null,
     archivedAt: null,
+    // Public-view default: show the board and the commit log, but keep full
+    // task descriptions private until the owner opts in.
+    clientShareShowDescription: false,
     createdAt: now,
     updatedAt: now,
   });
@@ -666,6 +669,9 @@ export async function duplicateProject(
     status: sourceProject.status,
     deadline: sourceProject.deadline,
     archivedAt: null,
+    // Same public-view default as a fresh project: board + commits, no full
+    // task descriptions until opted in.
+    clientShareShowDescription: false,
     createdAt: now,
     updatedAt: now,
   });
