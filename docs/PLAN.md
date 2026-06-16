@@ -10,7 +10,7 @@
 > `personal_access_token` (not `api_key`); token helpers live in `lib/auth-token.ts`
 > (not `lib/mcp/auth.ts`); the endpoint is a single `app/api/mcp/route.ts` with no
 > `[transport]` segment; and `lib/services/projects.ts` / `daily.ts` were deferred
-> and not built. For the current architecture, see [MCP.md](MCP.md).
+> and not built. For the current architecture, see the [MCP docs](https://seederpm.xyz/docs/mcp).
 
 ---
 

@@ -71,9 +71,9 @@ Everything lives at **[seederpm.xyz/docs](https://seederpm.xyz/docs)**:
 - [Configuration](https://seederpm.xyz/docs/configuration/environment) — every environment variable and binding
 - [MCP server](https://seederpm.xyz/docs/mcp) — connect Claude, Cursor, or ChatGPT to your workspace
 - [Operations](https://seederpm.xyz/docs/operations/backup-restore) — backup/restore, upgrading, troubleshooting
+- [Architecture](https://seederpm.xyz/docs/architecture) — how it's built, end to end
 
-The internal architecture reference also lives in-repo:
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/MCP.md](docs/MCP.md).
+All documentation lives on the docs site — this README stays intentionally short.
 
 ## MCP server
 
