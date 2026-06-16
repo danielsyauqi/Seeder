@@ -50,7 +50,11 @@ import {
   deleteTaskLabel as deleteTaskLabelService,
   updateTaskLabel as updateTaskLabelService,
 } from "@/lib/services/labels";
-import { writeProjectNote as writeProjectNoteService } from "@/lib/services/notes";
+import {
+  createProjectNote as createProjectNoteService,
+  deleteProjectNote as deleteProjectNoteService,
+  updateProjectNote as updateProjectNoteService,
+} from "@/lib/services/notes";
 import {
   deleteStatusUpdate as deleteStatusUpdateService,
   publishStatusUpdate as publishStatusUpdateService,
@@ -241,9 +245,22 @@ const taskDeleteSchema = z.object({
   returnTo: optionalText,
 });
 
-const noteSchema = z.object({
+const noteCreateSchema = z.object({
   projectId: z.string().min(1),
   content: z.string(),
+  returnTo: optionalText,
+});
+
+const noteUpdateSchema = z.object({
+  projectId: z.string().min(1),
+  noteId: z.string().min(1),
+  content: z.string(),
+  returnTo: optionalText,
+});
+
+const noteDeleteSchema = z.object({
+  projectId: z.string().min(1),
+  noteId: z.string().min(1),
   returnTo: optionalText,
 });
 
@@ -1265,23 +1282,71 @@ export async function deleteTaskAction(formData: FormData) {
   redirect(destination);
 }
 
-export async function saveProjectNoteAction(formData: FormData) {
+export async function createProjectNoteAction(formData: FormData) {
   const viewer = await requireViewer();
-  const payload = noteSchema.parse(toPayload(formData));
+  const payload = noteCreateSchema.parse(toPayload(formData));
 
-  await writeProjectNoteService(viewer, payload);
-
-  const destination = safeReturnPath(
-    payload.returnTo,
-    `/projects/${payload.projectId}`,
-  );
+  await createProjectNoteService(viewer, {
+    projectId: payload.projectId,
+    content: payload.content,
+  });
 
   revalidateProjectViews(payload.projectId, {
     projects: true,
     overview: true,
     notes: true,
   });
-  redirect(withFlash(destination, "note-saved"));
+  redirect(
+    withFlash(
+      safeReturnPath(payload.returnTo, `/projects/${payload.projectId}/notes`),
+      "note-saved",
+    ),
+  );
+}
+
+export async function updateProjectNoteAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = noteUpdateSchema.parse(toPayload(formData));
+
+  await updateProjectNoteService(viewer, {
+    projectId: payload.projectId,
+    noteId: payload.noteId,
+    content: payload.content,
+  });
+
+  revalidateProjectViews(payload.projectId, {
+    projects: true,
+    overview: true,
+    notes: true,
+  });
+  redirect(
+    withFlash(
+      safeReturnPath(payload.returnTo, `/projects/${payload.projectId}/notes`),
+      "note-saved",
+    ),
+  );
+}
+
+export async function deleteProjectNoteAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = noteDeleteSchema.parse(toPayload(formData));
+
+  await deleteProjectNoteService(viewer, {
+    projectId: payload.projectId,
+    noteId: payload.noteId,
+  });
+
+  revalidateProjectViews(payload.projectId, {
+    projects: true,
+    overview: true,
+    notes: true,
+  });
+  redirect(
+    withFlash(
+      safeReturnPath(payload.returnTo, `/projects/${payload.projectId}/notes`),
+      "note-removed",
+    ),
+  );
 }
 
 export async function createTaskChecklistItemAction(formData: FormData) {

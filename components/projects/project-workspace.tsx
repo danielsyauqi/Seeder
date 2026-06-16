@@ -2,10 +2,8 @@ import Link from "next/link";
 import {
   ArrowSquareOut,
   ChatCircleText,
-  ClockCounterClockwise,
   Kanban,
   NotePencil,
-  PencilSimple,
   Plus,
   SlidersHorizontal,
 } from "@phosphor-icons/react/dist/ssr";
@@ -14,6 +12,7 @@ import { CategoryManager } from "@/components/projects/category-manager";
 import { LabelManager } from "@/components/projects/label-manager";
 import { KanbanBoard } from "@/components/projects/kanban-board";
 import { ProjectColorPicker } from "@/components/projects/project-color-picker";
+import { ProjectNotesPanel } from "@/components/projects/project-notes-panel";
 import { ProjectSlugForm } from "@/components/projects/project-slug-form";
 import { formatRequestCode, formatTaskCode } from "@/lib/codes";
 import { formatProjectStatus } from "@/lib/project-status";
@@ -59,18 +58,6 @@ function formatDateLabel(value: Date | null) {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function formatUpdatedLabel(value: Date | null) {
-  if (!value) {
-    return "No activity yet";
-  }
-
-  return `Updated ${value.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  })}`;
 }
 
 function countTasksByStatus(workspace: ProjectWorkspace) {
@@ -286,51 +273,27 @@ export function ProjectNotesSurface({
   currentPath: string;
   expanded?: boolean;
 }) {
-  const noteContent = workspace.note?.content.trim() ?? "";
+  const notes = workspace.notes.map((note) => ({
+    id: note.id,
+    content: note.content,
+    createdAt: note.createdAt.toISOString(),
+    updatedAt: note.updatedAt.toISOString(),
+  }));
 
   return (
     <SectionFrame className={expanded ? "" : "h-full"}>
       <SectionHeader
         eyebrow="Notes"
         title="Running context"
-        description="Keep decisions, client tone, blockers, and next-review notes in one place."
-        action={
-          <ProjectWorkspaceModalTrigger
-            modal="notes"
-            className="ui-button-secondary"
-          >
-            <PencilSimple className="size-4" />
-            {noteContent ? "Edit notes" : "Add notes"}
-          </ProjectWorkspaceModalTrigger>
-        }
+        description="Keep decisions, client tone, blockers, and next-review notes here. Add as many dated notes as you need."
       />
-
-      {noteContent ? (
-        <div className="space-y-4">
-          <div className="inline-flex items-center gap-2 rounded-sm border border-border bg-surface px-2 py-1 font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
-            <ClockCounterClockwise className="size-4" />
-            {formatUpdatedLabel(workspace.note?.updatedAt ?? null)}
-          </div>
-          <div
-            className={cn(
-              "rounded-md border border-border bg-surface px-5 py-5 text-sm leading-7 text-foreground whitespace-pre-wrap",
-              !expanded && "line-clamp-[14]",
-            )}
-          >
-            {noteContent}
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-md border border-dashed border-border bg-surface px-5 py-10 text-center">
-          <div className="mx-auto inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-muted">
-            <NotePencil className="size-5" />
-          </div>
-          <p className="mt-3 text-[13px] font-medium text-foreground">No project notes yet</p>
-          <p className="mt-1 text-[13px] leading-6 text-muted">
-            Capture decisions, research, and client context here so it does not crowd the workspace.
-          </p>
-        </div>
-      )}
+      <ProjectNotesPanel
+        projectId={workspace.project.id}
+        currentPath={currentPath}
+        notes={notes}
+        previewLimit={expanded ? undefined : 3}
+        manageHref={`/projects/${workspace.project.id}/notes`}
+      />
     </SectionFrame>
   );
 }

@@ -551,8 +551,10 @@ export const projectNotes = sqliteTable(
       .default(sql`(unixepoch() * 1000)`),
   },
   (table) => [
-    uniqueIndex("project_notes_project_idx").on(table.projectId),
+    // Many notes per project, ordered newest-first by created_at.
+    index("project_notes_project_idx").on(table.projectId),
     index("project_notes_owner_idx").on(table.ownerId),
+    index("project_notes_created_idx").on(table.createdAt),
   ],
 );
 

@@ -25,6 +25,7 @@ export const FLASH_MESSAGES: Record<
   "share-rotated": { message: "Client link rotated", variant: "success" },
   "share-visibility": { message: "Client view updated", variant: "success" },
   "note-saved": { message: "Note saved", variant: "success" },
+  "note-removed": { message: "Note deleted", variant: "success" },
   "status-published": { message: "Client update published", variant: "success" },
   "status-removed": { message: "Client update deleted", variant: "success" },
   "request-converted": { message: "Converted to task", variant: "success" },

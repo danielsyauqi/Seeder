@@ -26,7 +26,6 @@ import {
   convertRequestToTaskAction,
   deleteProjectAction,
   deleteTaskStatusUpdateAction,
-  saveProjectNoteAction,
   saveTaskStatusUpdateAction,
   updateProjectAction,
 } from "@/lib/actions";
@@ -59,7 +58,6 @@ type WorkspaceModalKind =
   | "delete-task"
   | "new-request"
   | "request"
-  | "notes"
   | "delete-project"
   | "project"
   | "status-update";
@@ -521,7 +519,6 @@ function parseUrlModalState(
     modal !== "delete-task" &&
     modal !== "new-request" &&
     modal !== "request" &&
-    modal !== "notes" &&
     modal !== "delete-project" &&
     modal !== "project" &&
     modal !== "status-update"
@@ -1765,32 +1762,6 @@ function ProjectWorkspaceModalHost({
             }}
           />
         </div>
-      </ModalShell>
-    );
-  }
-
-  if (modalState.kind === "notes") {
-    return (
-      <ModalShell
-        onClose={onClose}
-        title="Edit notes"
-        description="Capture the project memory here instead of mixing freeform writing into every workspace screen."
-        maxWidthClassName="max-w-4xl"
-      >
-        <form action={saveProjectNoteAction} className="grid gap-4">
-          <input type="hidden" name="projectId" value={workspace.project.id} />
-          <input type="hidden" name="returnTo" value={currentPath} />
-          <textarea
-            name="content"
-            rows={16}
-            defaultValue={workspace.note?.content ?? ""}
-            className={cn(textAreaClassName, "min-h-90")}
-            placeholder="Keep research notes, decisions, client tone, dependencies, or next review prompts here."
-          />
-          <SubmitButton pendingLabel="Saving notes...">
-            Save notes
-          </SubmitButton>
-        </form>
       </ModalShell>
     );
   }

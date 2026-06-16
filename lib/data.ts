@@ -993,7 +993,7 @@ export async function getProjectWorkspace(
       .select()
       .from(projectNotes)
       .where(eq(projectNotes.projectId, projectId))
-      .limit(1),
+      .orderBy(desc(projectNotes.createdAt)),
     db
       .select({
         id: projectActivity.id,
@@ -1130,7 +1130,7 @@ export async function getProjectWorkspace(
     tasks: tasksWithLabels,
     checklistItems,
     statusUpdates,
-    note: notes[0] ?? null,
+    notes,
     activity,
     members,
     taskComments: taskCommentRows,

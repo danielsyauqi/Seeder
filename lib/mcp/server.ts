@@ -93,8 +93,8 @@ import {
   updateTaskLabelInputSchema,
 } from "@/lib/services/labels";
 import {
-  writeProjectNote,
-  writeProjectNoteInputSchema,
+  createProjectNote,
+  createProjectNoteInputSchema,
 } from "@/lib/services/notes";
 import {
   deleteStatusUpdate,
@@ -110,7 +110,7 @@ import {
   listStatusUpdates,
   listTasks,
   readProject,
-  readProjectNotes,
+  listProjectNotes,
   readRequest,
   readTask,
   search,
@@ -362,11 +362,11 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
     {
       title: "Read project notes",
       description:
-        "Read a project's notes scratchpad by projectId. Returns null if there's no note or you can't access the project. Read-only.",
+        "List a project's notes by projectId, newest first. Returns [] if there are no notes or you can't access the project. Read-only.",
       inputSchema: { projectId: z.string() },
       annotations: { readOnlyHint: true },
     },
-    async (args) => jsonResult(await readProjectNotes(viewer, args)),
+    async (args) => jsonResult(await listProjectNotes(viewer, args)),
   );
 
   server.registerTool(
@@ -910,19 +910,19 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
   // --- Project notes & client status updates --------------------------------
 
   server.registerTool(
-    "write-project-notes",
+    "add-project-note",
     {
-      title: "Write project notes",
+      title: "Add project note",
       description:
-        "Set a project's notes scratchpad (plain text; replaces the whole note — read it first with read-project-notes if appending). Pass an empty string to clear. Project owner only. CONFIRM with the user.",
-      inputSchema: writeProjectNoteInputSchema.shape,
+        "Add a note to a project. Markdown is accepted and converted to rich text. A project can hold many notes; each call adds a new one. Project owner only. CONFIRM with the user.",
+      inputSchema: createProjectNoteInputSchema.shape,
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: true,
+        idempotentHint: false,
       },
     },
-    async (args) => runWrite(() => writeProjectNote(viewer, args)),
+    async (args) => runWrite(() => createProjectNote(viewer, args)),
   );
 
   server.registerTool(

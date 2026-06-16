@@ -109,8 +109,9 @@ export type DailyTaskSummary = {
 };
 
 export type ProjectNote = {
-  projectId: string;
+  id: string;
   content: string;
+  createdAt: string;
   updatedAt: string;
 };
 
@@ -445,26 +446,26 @@ export async function listDailyTasks(
 }
 
 /**
- * A project's notes scratchpad (one per project). Returns null if the project
- * has no note yet or the viewer can't access it (never throws — no oracle).
+ * A project's notes, newest first. Returns [] if the project has no notes or the
+ * viewer can't access it (never throws — no oracle).
  */
-export async function readProjectNotes(
+export async function listProjectNotes(
   viewer: Viewer,
   input: { projectId: string },
-): Promise<ProjectNote | null> {
-  if (!(await canAccessProject(viewer, input.projectId))) return null;
+): Promise<ProjectNote[]> {
+  if (!(await canAccessProject(viewer, input.projectId))) return [];
   const db = getDb();
-  const [row] = await db
+  const rows = await db
     .select()
     .from(projectNotes)
     .where(eq(projectNotes.projectId, input.projectId))
-    .limit(1);
-  if (!row) return null;
-  return {
-    projectId: row.projectId,
+    .orderBy(desc(projectNotes.createdAt));
+  return rows.map((row) => ({
+    id: row.id,
     content: row.content,
+    createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-  };
+  }));
 }
 
 /**
