@@ -21,7 +21,8 @@ that user**, bounded by exactly the project access the user already has. Every
 change flows through the same code the web UI uses, so it lands in the project
 Activity feed identically.
 
-Tool surface today: **projects / tasks / task categories / client requests /
+Tool surface today: **projects (incl. notes & client status updates) / tasks /
+task categories / task labels / client requests / task & request comments /
 task checklists / project members / workspace invites** (reads + writes).
 Daily-task *writes* are the only remaining piece deferred (see §11).
 
@@ -51,8 +52,8 @@ AI client ──POST /api/mcp──▶  app/api/mcp/route.ts
         1. originAllowed(request)   → 403 if MCP_ALLOWED_ORIGINS set & Origin present-but-unlisted
         2. getViewerFromToken(req)  → { viewer, scope }  | 401 (JSON-RPC -32001) if invalid
         3. buildServer({viewer, scope})   (lib/mcp/server.ts)
-              · whoami + 13 read tools                (always)
-              · 31 write / management tools           (only if scope === "readwrite")
+              · whoami + 16 read tools                (always)
+              · 43 write / management tools           (only if scope === "readwrite")
         4. new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
         5. server.connect(transport); return transport.handleRequest(request)
                                               │
@@ -87,8 +88,14 @@ lib/services/_shared.ts                      shared mutation helpers + optionalT
 lib/services/tasks.ts                        create/update/delete Task, updateTaskStatus + Zod input schemas
 lib/services/checklist.ts                    create/toggle/update/delete ChecklistItem + schemas
 lib/services/categories.ts                   list/create/update/delete TaskCategory + schemas (owner-only writes)
+lib/services/labels.ts                       list/create/update/delete TaskLabel + add/remove on tasks (many-to-many)
+lib/services/comments.ts                     list/create/update/delete Task & Request comments (Markdown-aware)
+lib/services/notes.ts                        writeProjectNote (owner-only upsert)
+lib/services/status-updates.ts               publish/delete client status update (owner-only; task must be done)
 lib/services/requests.ts                     create/update/delete Request + schemas
-lib/services/reads.ts                        listProjects/listTasks/readTask/listRequests/readRequest/search
+lib/services/reads.ts                        listProjects/readProject/listTasks/readTask/listRequests/readRequest/search
+lib/markdown-to-rich-text.ts                 Markdown → TipTap JSON (descriptions/comments accept Markdown)
+migrations/0025_task_labels.sql              task_labels + task_task_labels (join) tables
 
 app/api/workspace/route.ts                   web route: thin dispatcher; re-composes workspaceMutationSchema from the service schemas
 lib/db/schema.ts                             personalAccessToken table + tokenScopeValues / TokenScope
@@ -186,7 +193,7 @@ Two layers, independent:
 
 ---
 
-## 7. Tool surface (45 tools)
+## 7. Tool surface (60 tools)
 
 **Read (always):**
 
@@ -199,8 +206,11 @@ Two layers, independent:
 | `read-task` | `{ projectId, taskId }` | task detail + checklist, or `null` |
 | `list-requests` | `{ projectId?, status? }` | request summaries (≤100) |
 | `read-request` | `{ projectId, requestId }` | request detail, or `null` |
+| `list-task-comments` | `{ projectId, taskId }` | a task's comment thread (author, text, timestamps), or `[]` |
+| `list-request-comments` | `{ projectId, requestId }` | a request's comment thread, or `[]` |
 | `list-task-categories` | `{ projectId }` | a project's categories w/ task counts, or `[]` |
-| `list-color-swatches` | — | the valid color swatches (`{ value, label }`) for project + category colors |
+| `list-task-labels` | `{ projectId }` | a project's labels w/ task counts, or `[]` |
+| `list-color-swatches` | — | the valid color swatches (`{ value, label }`) for project/category/label colors |
 | `search` | `{ query, limit? }` | cross-entity hits (≤50, max 100) |
 | `list-daily-tasks` | `{ date?, from?, to? }` | the viewer's own daily-plan items (≤100) |
 | `read-project-notes` | `{ projectId }` | project notes scratchpad, or `null` |
@@ -214,10 +224,18 @@ Two layers, independent:
   `toggle-checklist-item`, `update-checklist-item`, `delete-checklist-item`.
 - **Task categories** — `create-task-category`, `update-task-category`,
   `delete-task-category` (listing is the read-tool `list-task-categories`).
+- **Task labels** — `create-task-label`, `update-task-label`,
+  `delete-task-label`, `add-task-label`, `remove-task-label` (listing is the
+  read-tool `list-task-labels`).
+- **Comments** — `add-task-comment`, `delete-task-comment`,
+  `add-request-comment`, `delete-request-comment` (listing is the read-tools
+  `list-task-comments` / `list-request-comments`).
 - **Requests** — `create-request`, `update-request`, `delete-request`.
 - **Projects** — `create-project`, `update-project`, `set-project-key`,
   `set-project-color`, `archive-project`, `restore-project`, `duplicate-project`,
   `delete-project`, `set-client-board`, `rotate-client-board-link`.
+- **Project notes & status** — `write-project-notes`, `publish-status-update`,
+  `delete-status-update`.
 - **Members** — `list-project-members`, `add-project-member`,
   `remove-project-member`.
 - **Workspace invites** — `create-invite`, `list-invites`, `revoke-invite`.
@@ -231,10 +249,13 @@ Conventions:
   (single source of truth with the web route's parser).
 - **Authz is per-domain, matching the web app**: task/request/checklist tools use
   member-aware `canAccessProject`; project-settings tools are owner-only
-  (`assertProjectManage`); **category writes are owner-only too** (only
-  `list-task-categories` is member-aware); member tools use
-  `canManageProjectMembers` (owner-or-admin); invite tools use `isAdminTier`
-  (owner/admin, owner-only for admin invites).
+  (`assertProjectManage`); **category and label *definitions* are owner-only too**,
+  while *assigning* labels to tasks (`add`/`remove-task-label`) is member-aware,
+  like setting a category; **notes and client status updates are owner-only**;
+  **comments** let any member add (`add-*-comment`) but only the author or a
+  workspace admin delete; member tools use `canManageProjectMembers`
+  (owner-or-admin); invite tools use `isAdminTier` (owner/admin, owner-only for
+  admin invites).
 - **`update-task-category` is a partial update** (unlike the full-replace task /
   request / project updates): only the `name`/`color` you pass change, so a
   rename can't silently recolor. A rename/recolor cascades to the denormalized
@@ -376,9 +397,14 @@ remote MCP can bridge with [`mcp-remote`](https://www.npmjs.com/package/mcp-remo
 - **Daily-task write tools** — need `lib/services/daily.ts`. Daily-plan items
   still live in `lib/actions.ts` as Server Actions with their own reorder/board
   side-effects; extracting them is the remaining piece of the services migration.
-  (Project writes, members, and invites shipped — extracted to
-  `lib/services/{projects,members}.ts`, gated owner-only / owner-or-admin to match
-  the web; see §7.)
+  (Project writes, members, invites, categories, **labels, comments, project
+  notes, and client status updates** have all shipped — extracted to
+  `lib/services/*` and gated to match the web; see §7.)
+- **Labels at task-create time in the web UI** — the web new-task form doesn't yet
+  carry a label picker (labels are assigned from the task modal, which persists via
+  `setTaskLabelsAction`); MCP `create-task` + `add-task-label` already covers the
+  import flow. Threading `labelIds` through the `/api/workspace` create/update path
+  would close the in-app gap.
 - **`lib/actions.ts` helper de-dup** — it has byte-identical copies of
   `parseDate` / `touchProject` / `nextTaskCodeNumber` / etc. now in
   `lib/services/_shared.ts`; importing the shared ones is pure cleanup.

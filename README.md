@@ -191,19 +191,25 @@ MCP-driven changes show in the project Activity feed, attributed to the token's
 user, exactly like changes made in the UI.
 
 **Read tools** (any token): `whoami`, `list-projects`, `read-project`,
-`list-tasks`, `read-task`, `list-requests`, `read-request`,
-`list-task-categories`, `list-color-swatches`, `search`, `list-daily-tasks`,
-`read-project-notes`, `list-project-activity`, `list-status-updates`.
+`list-tasks`, `read-task`, `list-requests`, `read-request`, `list-task-comments`,
+`list-request-comments`, `list-task-categories`, `list-task-labels`,
+`list-color-swatches`, `search`, `list-daily-tasks`, `read-project-notes`,
+`list-project-activity`, `list-status-updates`.
 
 **Read & write tools** (a `read & write` token also gets):
 
 - **Tasks** — `create/update/delete-task`, `update-task-status`,
   `set-task-category`, `create/toggle/update/delete-checklist-item`.
 - **Task categories** — `create/update/delete-task-category` (owner-only).
+- **Task labels** — `create/update/delete-task-label` (owner-only),
+  `add/remove-task-label` (assign to tasks; member-aware).
+- **Comments** — `add/delete-task-comment`, `add/delete-request-comment`
+  (Markdown-aware).
 - **Requests** — `create/update/delete-request`.
 - **Projects** — `create-project`, `update-project`, `delete-project`,
   `archive-project`, `restore-project`, `duplicate-project`, `set-project-key`,
-  `set-project-color`, `set-client-board`, `rotate-client-board-link`.
+  `set-project-color`, `set-client-board`, `rotate-client-board-link`,
+  `write-project-notes`, `publish/delete-status-update`.
 - **Members** — `list-project-members`, `add-project-member`, `remove-project-member`.
 - **Workspace invites** — `create-invite`, `list-invites`, `revoke-invite`.
 
