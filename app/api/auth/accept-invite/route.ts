@@ -4,6 +4,7 @@ import { hashPassword } from "better-auth/crypto";
 
 import { getDb } from "@/lib/db";
 import { account, invitations, user } from "@/lib/db/schema";
+import { ensurePersonalSpace } from "@/lib/services/spaces";
 
 const acceptInviteSchema = z.object({
   token: z.string().trim().min(1),
@@ -85,6 +86,9 @@ export async function POST(request: Request) {
     .update(invitations)
     .set({ acceptedAt: now })
     .where(eq(invitations.id, invite.id));
+
+  // Give the new user their Personal space (this insert bypasses the auth hook).
+  await ensurePersonalSpace(userId);
 
   return Response.json({ ok: true, email });
 }

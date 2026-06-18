@@ -74,6 +74,13 @@ export type UserRole = (typeof userRoleValues)[number];
 export const projectMemberRoleValues = ["leader", "member"] as const;
 export type ProjectMemberRole = (typeof projectMemberRoleValues)[number];
 
+// A Space groups projects. "personal" = one private space per user (only the
+// owner + workspace admins see its projects). "company" = a named, shared space
+// an admin creates; its members get baseline access to ALL its projects, and a
+// Space Lead (spaces.leadId) + admins manage it. Every project has a spaceId.
+export const spaceKindValues = ["personal", "company"] as const;
+export type SpaceKind = (typeof spaceKindValues)[number];
+
 // Scope of a personal access token. `read` = query-only MCP tools; `readwrite`
 // = also allowed to mutate. A token never exceeds its owner's project access.
 export const tokenScopeValues = ["read", "readwrite"] as const;
@@ -227,6 +234,65 @@ export const personalAccessToken = sqliteTable(
   ],
 );
 
+// Spaces own projects. Defined before `projects` because projects.spaceId
+// references it. Personal spaces cascade-delete with their owner; company
+// spaces survive their lead/creator being removed (SET NULL).
+export const spaces = sqliteTable(
+  "spaces",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: spaceKindValues }).notNull(),
+    name: text("name").notNull(),
+    // Sole owner of a PERSONAL space (NULL for company). Deleting the user
+    // removes their personal space (their projects cascade off the user too).
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "cascade" }),
+    // Space Lead for a COMPANY space (NULL for personal, or if the lead is
+    // removed — admins still manage it). SET NULL so a shared space survives.
+    leadId: text("lead_id").references(() => user.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    index("spaces_owner_idx").on(table.ownerId),
+    // At most one personal space per user.
+    uniqueIndex("spaces_personal_owner_idx")
+      .on(table.ownerId)
+      .where(sql`${table.kind} = 'personal'`),
+  ],
+);
+
+// Membership of a COMPANY space → baseline access to all its projects.
+export const spaceMembers = sqliteTable(
+  "space_members",
+  {
+    id: text("id").primaryKey(),
+    spaceId: text("space_id")
+      .notNull()
+      .references(() => spaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    addedById: text("added_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    uniqueIndex("space_members_space_user_idx").on(table.spaceId, table.userId),
+    // Load-bearing: the access-resolution query joins by userId on every page.
+    index("space_members_user_idx").on(table.userId),
+  ],
+);
+
 export const projects = sqliteTable(
   "projects",
   {
@@ -234,6 +300,10 @@ export const projects = sqliteTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // The space this project belongs to. Nullable at the DB level only (SQLite
+    // can't ALTER ADD a NOT NULL FK); every write path sets it and migration
+    // 0032 backfills existing rows to each owner's Personal space.
+    spaceId: text("space_id").references(() => spaces.id),
     name: text("name").notNull(),
     slug: text("slug"),
     clientName: text("client_name"),
@@ -274,6 +344,7 @@ export const projects = sqliteTable(
   },
   (table) => [
     index("projects_owner_idx").on(table.ownerId),
+    index("projects_space_idx").on(table.spaceId),
     index("projects_status_idx").on(table.status),
     // Partial uniques (matching the migrations): NULLs are exempt so multiple
     // projects may have no slug / no share token.
@@ -894,6 +965,8 @@ export type ActivityAction = (typeof activityActionValues)[number];
 
 export type Project = typeof projects.$inferSelect;
 export type Branch = typeof branches.$inferSelect;
+export type Space = typeof spaces.$inferSelect;
+export type SpaceMember = typeof spaceMembers.$inferSelect;
 export type ClientRequest = typeof clientRequests.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 export type TaskChecklistItem = typeof taskChecklistItems.$inferSelect;

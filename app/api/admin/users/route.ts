@@ -6,6 +6,7 @@ import { hashPassword } from "better-auth/crypto";
 import { requireRole } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { account, user, userRoleValues } from "@/lib/db/schema";
+import { ensurePersonalSpace } from "@/lib/services/spaces";
 
 const createUserSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -71,6 +72,9 @@ export async function POST(request: Request) {
     createdAt: now,
     updatedAt: now,
   });
+
+  // Give the new user their Personal space (this insert bypasses the auth hook).
+  await ensurePersonalSpace(userId);
 
   revalidatePath("/admin/users");
   return Response.json({ ok: true, id: userId });

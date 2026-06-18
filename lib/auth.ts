@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { authTrustedOrigins, serverEnv } from "@/lib/env";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { ensurePersonalSpace } from "@/lib/services/spaces";
 
 const dbProxy = new Proxy(
   {},
@@ -111,6 +112,8 @@ export const auth = betterAuth({
         // signup — invites insert directly (no hook) and Google has
         // disableImplicitSignUp, so no other create reaches here.
         after: async (createdUser) => {
+          // Every user gets their one Personal space before they can do anything.
+          await ensurePersonalSpace(createdUser.id);
           if (createdUser.email.toLowerCase() !== serverEnv.ownerEmail) return;
           const db = getDb();
           await db
