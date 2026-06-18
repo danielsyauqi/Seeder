@@ -8,14 +8,11 @@ import {
   Buildings,
   CalendarCheck,
   CalendarDots,
-  CaretDown,
   ChartBar,
   Folders,
   GearSix,
   Kanban,
-  Key,
   List,
-  LockKey,
   PaperPlaneTilt,
   Plant,
   Power,
@@ -29,7 +26,6 @@ import { BrandLogo } from "@/components/app/brand-logo";
 import { CommandBar } from "@/components/app/command-bar";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import { Avatar } from "@/components/ui/avatar";
-import { ChangePasswordForm } from "@/components/auth/change-password-form";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import {
   clearAllNotificationsAction,
@@ -75,8 +71,6 @@ export function AppSidebar({
   const pathname = usePathname();
   const isAdminMode = pathname.startsWith("/admin");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isSecurityOpen, setIsSecurityOpen] = useState(false);
-  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   // Desktop icon-rail collapse. The attribute on <html> (set pre-paint by the
   // boot script) is the source of truth; this state just mirrors it for the
@@ -96,7 +90,6 @@ export function AppSidebar({
 
   useEffect(() => {
     setIsNotificationsOpen(false);
-    setIsSecurityOpen(false);
     setMobileOpen(false);
     setNotifications(null);
     setNotificationsError(null);
@@ -424,6 +417,7 @@ export function AppSidebar({
         <nav className="mt-4 flex shrink-0 flex-col gap-0.5">
           {isAdminMode ? (
             <>
+              <NavSection label="Featured" first />
               <NavItem
                 href="/admin/dashboard"
                 icon={ChartBar}
@@ -431,11 +425,27 @@ export function AppSidebar({
                 active={pathname.startsWith("/admin/dashboard")}
               />
               <NavItem
+                href="/admin/daily"
+                icon={CalendarCheck}
+                label="Daily Ops"
+                active={pathname.startsWith("/admin/daily")}
+              />
+
+              <NavSection label="People" />
+              <NavItem
                 href="/admin/users"
                 icon={UsersThree}
                 label="Users"
                 active={pathname.startsWith("/admin/users")}
               />
+              <NavItem
+                href="/admin/invites"
+                icon={PaperPlaneTilt}
+                label="Invite"
+                active={pathname.startsWith("/admin/invites")}
+              />
+
+              <NavSection label="Workspace" />
               <NavItem
                 href="/admin/projects"
                 icon={Folders}
@@ -443,22 +453,18 @@ export function AppSidebar({
                 active={pathname.startsWith("/admin/projects")}
               />
               <NavItem
+                href="/admin/spaces"
+                icon={Buildings}
+                label="Spaces"
+                active={pathname.startsWith("/admin/spaces")}
+              />
+
+              <NavSection label="System" />
+              <NavItem
                 href="/admin/activity"
                 icon={Pulse}
                 label="Activity"
                 active={pathname.startsWith("/admin/activity")}
-              />
-              <NavItem
-                href="/admin/daily"
-                icon={CalendarCheck}
-                label="Daily Ops"
-                active={pathname.startsWith("/admin/daily")}
-              />
-              <NavItem
-                href="/admin/invites"
-                icon={PaperPlaneTilt}
-                label="Invite"
-                active={pathname.startsWith("/admin/invites")}
               />
               <NavItem
                 href="/admin/system"
@@ -469,6 +475,7 @@ export function AppSidebar({
             </>
           ) : (
             <>
+              <NavSection label="Featured" first />
               <NavItem
                 href="/dashboard"
                 icon={ChartBar}
@@ -487,6 +494,8 @@ export function AppSidebar({
                 label="Task"
                 active={pathname === "/daily"}
               />
+
+              <NavSection label="Workspace" />
               <NavItem
                 href="/projects"
                 icon={Folders}
@@ -494,16 +503,10 @@ export function AppSidebar({
                 active={pathname === "/projects"}
               />
               <NavItem
-                href="/settings/spaces"
+                href="/spaces"
                 icon={Buildings}
                 label="Spaces"
-                active={pathname.startsWith("/settings/spaces")}
-              />
-              <NavItem
-                href="/settings/tokens"
-                icon={Key}
-                label="API tokens"
-                active={pathname.startsWith("/settings/tokens")}
+                active={pathname === "/spaces" || pathname.startsWith("/spaces/")}
               />
             </>
           )}
@@ -615,53 +618,26 @@ export function AppSidebar({
           </div>
         </div>
 
-        <div
+        <button
+          type="button"
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent("seeder:open-shortcuts"))
+          }
+          title="Keyboard shortcuts (press ?)"
           className={cn(
-            "sidebar-collapsible mt-4 shrink-0 rounded-md border border-border bg-surface px-3 py-2.5",
+            "sidebar-collapsible mt-4 flex w-full shrink-0 items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-2.5 text-left text-muted transition duration-150",
+            "hover:-translate-y-px hover:border-border-strong hover:bg-surface-strong hover:text-foreground",
+            "active:translate-y-0 active:scale-[0.98] motion-reduce:transform-none",
             isAdminMode && "hidden",
           )}
         >
-          <button
-            type="button"
-            onClick={() => setIsShortcutsOpen((open) => !open)}
-            aria-expanded={isShortcutsOpen}
-            aria-controls="sidebar-shortcuts-list"
-            className="flex w-full items-center justify-between gap-2 text-left text-muted transition hover:text-foreground"
-          >
-            <span className="font-mono text-[11px] font-medium uppercase tracking-[0.04em]">
-              Shortcuts
-            </span>
-            <CaretDown
-              weight="bold"
-              className={cn(
-                "size-3 transition-transform duration-200 ease-out",
-                isShortcutsOpen && "rotate-180",
-              )}
-            />
-          </button>
-          <div
-            className={cn(
-              "grid transition-[grid-template-rows] duration-200 ease-out",
-              isShortcutsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-            )}
-          >
-            <ul
-              id="sidebar-shortcuts-list"
-              className={cn(
-                "min-h-0 space-y-1 overflow-hidden transition-[margin-top,opacity] duration-200 ease-out",
-                isShortcutsOpen ? "mt-2 opacity-100" : "mt-0 opacity-0",
-              )}
-            >
-              <ShortcutLegendRow keys={["N"]} label="New task" />
-              <ShortcutLegendRow keys={["G", "D"]} label="Dashboard" />
-              <ShortcutLegendRow keys={["G", "T"]} label="Today" />
-              <ShortcutLegendRow keys={["G", "P"]} label="Projects" />
-              <ShortcutLegendRow keys={["G", "K"]} label="Board" />
-              <ShortcutLegendRow keys={["⌘", "K"]} label="Search" />
-              <ShortcutLegendRow keys={["?"]} label="More" />
-            </ul>
-          </div>
-        </div>
+          <span className="font-mono text-[11px] font-medium uppercase tracking-[0.04em]">
+            Shortcuts
+          </span>
+          <kbd className="inline-flex min-w-[18px] items-center justify-center rounded-sm border border-border bg-surface-strong px-1 py-0.5 font-mono text-[10px] font-medium text-muted">
+            ?
+          </kbd>
+        </button>
 
         <div className="sidebar-rail-center mt-3 flex shrink-0 items-center gap-2.5 rounded-md border border-border bg-surface p-2">
           <Avatar
@@ -677,15 +653,19 @@ export function AppSidebar({
           </div>
           <div className="sidebar-collapsible flex shrink-0 items-center gap-0.5">
             <ThemeToggle />
-            <button
-              type="button"
-              onClick={() => setIsSecurityOpen(true)}
-              title="Security"
-              aria-label="Security"
-              className="inline-flex size-7 items-center justify-center rounded-sm text-muted transition hover:bg-surface-strong hover:text-foreground"
+            <Link
+              href="/settings"
+              title="Settings"
+              aria-label="Settings"
+              className={cn(
+                "inline-flex size-7 items-center justify-center rounded-sm transition hover:bg-surface-strong hover:text-foreground",
+                pathname.startsWith("/settings") && !pathname.startsWith("/settings/tokens")
+                  ? "bg-surface-strong text-foreground"
+                  : "text-muted",
+              )}
             >
-              <LockKey className="size-4" />
-            </button>
+              <GearSix className="size-4" />
+            </Link>
             <SignOutButton className="inline-flex size-7 min-h-0 items-center justify-center rounded-sm border border-transparent bg-transparent p-0 text-muted transition hover:bg-danger/10 hover:text-danger">
               <Power className="size-4" />
               <span className="sr-only">Sign out</span>
@@ -838,46 +818,24 @@ export function AppSidebar({
           </div>
         </div>
       ) : null}
-
-      {isSecurityOpen ? (
-        <div className="fixed inset-0 z-50 p-4 sm:p-6">
-          <button
-            type="button"
-            aria-label="Close security"
-            onClick={() => setIsSecurityOpen(false)}
-            className="ui-modal-backdrop absolute inset-0 backdrop-blur-xs"
-          />
-          <div className="relative flex min-h-full items-end justify-center sm:items-center">
-            <div className="ui-modal-panel w-full max-w-2xl rounded-md border border-border bg-surface-strong p-5 shadow-xl sm:p-6">
-              <div className="mb-5 flex items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                    Security
-                  </p>
-                  <div>
-                    <h3 className="text-[20px] font-medium tracking-[-0.022em] text-foreground">
-                      Change password
-                    </h3>
-                    <p className="mt-1 max-w-2xl text-[13px] leading-6 text-muted">
-                      Update your account password without leaving the current workspace.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsSecurityOpen(false)}
-                  className="inline-flex size-9 items-center justify-center rounded-md border border-border bg-surface text-muted transition hover:border-border-strong hover:bg-surface-strong hover:text-foreground"
-                >
-                  <X className="size-4" />
-                  <span className="sr-only">Close security</span>
-                </button>
-              </div>
-              <ChangePasswordForm onClose={() => setIsSecurityOpen(false)} />
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
+  );
+}
+
+// A small uppercase heading that groups the nav rows beneath it into a named
+// section. Wrapped in `.sidebar-collapsible` so it disappears in the collapsed
+// rail (where only the icons remain); `first` drops the top spacing so the
+// opening section sits flush under the command bar.
+function NavSection({ label, first }: { label: string; first?: boolean }) {
+  return (
+    <p
+      className={cn(
+        "sidebar-collapsible px-2 pb-1 font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted",
+        first ? "pt-0" : "pt-3",
+      )}
+    >
+      {label}
+    </p>
   );
 }
 
@@ -909,29 +867,5 @@ function NavItem({
       <Icon className="size-4 shrink-0" />
       <span className="sidebar-collapsible">{label}</span>
     </Link>
-  );
-}
-
-function ShortcutLegendRow({
-  keys,
-  label,
-}: {
-  keys: string[];
-  label: string;
-}) {
-  return (
-    <li className="flex items-center justify-between gap-2">
-      <span className="text-[12px] text-muted">{label}</span>
-      <span className="flex items-center gap-1">
-        {keys.map((key, index) => (
-          <kbd
-            key={`${key}-${index}`}
-            className="inline-flex min-w-[18px] items-center justify-center rounded-sm border border-border bg-surface-strong px-1 py-0.5 font-mono text-[10px] font-medium text-foreground"
-          >
-            {key}
-          </kbd>
-        ))}
-      </span>
-    </li>
   );
 }

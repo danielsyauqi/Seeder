@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 
 import { CreateProjectModal } from "@/components/projects/create-project-modal";
 import { ProjectIndexList } from "@/components/projects/project-index-list";
@@ -106,6 +107,8 @@ export default async function ProjectsPage({
     ? "archived"
     : "open";
   const dashboard = await getProjectsDashboardForViewer(viewer, view);
+  // Persisted space filter for the project index (set client-side by the list).
+  const initialSpace = (await cookies()).get("seeder.projects.space")?.value;
   // Spaces the viewer may create a project in (their Personal + company spaces
   // they lead / admin), for the create-project picker.
   const postableSpaces = (await listSpaces(viewer))
@@ -222,7 +225,11 @@ export default async function ProjectsPage({
             }
           />
 
-          <ProjectIndexList projects={dashboard.projects} view={view} />
+          <ProjectIndexList
+            projects={dashboard.projects}
+            view={view}
+            initialSpace={initialSpace}
+          />
         </SectionFrame>
       </div>
     </>

@@ -32,15 +32,69 @@ function formatDateLabel(value: Date | null) {
 type Props = {
   projects: ProjectsDashboard["projects"];
   view: "open" | "archived";
+  initialSpace?: string;
 };
 
-export function ProjectIndexList({ projects, view }: Props) {
+const SPACE_FILTER_COOKIE = "seeder.projects.space";
+
+function persistSpaceFilter(value: string) {
+  if (typeof document === "undefined") return;
+  const maxAge = 60 * 60 * 24 * 365; // a year
+  document.cookie = `${SPACE_FILTER_COOKIE}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; samesite=lax`;
+}
+
+export function ProjectIndexList({ projects, view, initialSpace }: Props) {
   const [query, setQuery] = useState("");
+  const [spaceFilter, setSpaceFilter] = useState(initialSpace ?? "all");
+
+  // The spaces present in this list (Personal first, then company A→Z), used to
+  // build the filter dropdown. Keyed by spaceId, with "personal" for unscoped.
+  const spaceOptions = useMemo(() => {
+    const map = new Map<
+      string,
+      { key: string; label: string; kind: "personal" | "company" | null }
+    >();
+    for (const project of projects) {
+      const key = project.spaceId ?? "personal";
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label: project.spaceName ?? "Personal",
+          kind: project.spaceKind,
+        });
+      }
+    }
+    return [...map.values()].sort((a, b) => {
+      const ap = a.kind === "personal" ? 0 : 1;
+      const bp = b.kind === "personal" ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      return a.label.localeCompare(b.label);
+    });
+  }, [projects]);
+
+  // Clamp a stale cookie (e.g. a space that no longer has projects) back to All.
+  const effectiveSpace =
+    spaceFilter !== "all" && !spaceOptions.some((o) => o.key === spaceFilter)
+      ? "all"
+      : spaceFilter;
+
+  const bySpace = useMemo(
+    () =>
+      effectiveSpace === "all"
+        ? projects
+        : projects.filter((p) => (p.spaceId ?? "personal") === effectiveSpace),
+    [projects, effectiveSpace],
+  );
+
+  const handleSpaceChange = (value: string) => {
+    setSpaceFilter(value);
+    persistSpaceFilter(value);
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return projects;
-    return projects.filter((project) => {
+    if (!q) return bySpace;
+    return bySpace.filter((project) => {
       const haystack = [
         project.name,
         project.slug,
@@ -53,7 +107,7 @@ export function ProjectIndexList({ projects, view }: Props) {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [projects, query]);
+  }, [bySpace, query]);
 
   // Group the (filtered) projects by their space — Personal first, then company
   // spaces alphabetically — so the list reads as space-grouped sections.
@@ -197,21 +251,40 @@ export function ProjectIndexList({ projects, view }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by project, client, status, or summary…"
-          aria-label="Search projects"
-          className="w-full rounded-md border border-border bg-background py-2.5 pl-9 pr-3 text-[13px] text-foreground outline-none transition placeholder:text-muted focus:border-accent"
-        />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by project, client, status, or summary…"
+            aria-label="Search projects"
+            className="w-full rounded-md border border-border bg-background py-2.5 pl-9 pr-3 text-[13px] text-foreground outline-none transition placeholder:text-muted focus:border-accent"
+          />
+        </div>
+        {spaceOptions.length > 1 ? (
+          <div className="sm:w-56">
+            <select
+              value={effectiveSpace}
+              onChange={(event) => handleSpaceChange(event.target.value)}
+              aria-label="Filter by space"
+              className="ui-select"
+            >
+              <option value="all">All spaces</option>
+              {spaceOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-between px-1">
         <span className="font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
-          {query.trim()
+          {query.trim() || effectiveSpace !== "all"
             ? `${filtered.length} of ${projects.length} projects`
             : `${projects.length} projects`}
         </span>

@@ -204,6 +204,112 @@ export async function listSpaceMembers(
   return rows.map((r) => ({ ...r, isLead: r.userId === space.leadId }));
 }
 
+export type SpaceDetail = {
+  id: string;
+  kind: "personal" | "company";
+  name: string;
+  leadId: string | null;
+  leadName: string | null;
+  canManage: boolean;
+  members: SpaceMemberRow[];
+  projects: {
+    id: string;
+    name: string;
+    slug: string | null;
+    status: string;
+    color: string | null;
+    archivedAt: Date | null;
+  }[];
+};
+
+/**
+ * A space's detail (members + projects) for the detail page. Visible to any
+ * member, the lead, or a workspace admin; null otherwise. Members are shown to
+ * all viewers with access; management controls are gated separately (canManage).
+ */
+export async function getSpaceDetail(
+  viewer: Viewer,
+  spaceId: string,
+): Promise<SpaceDetail | null> {
+  const db = getDb();
+  const [space] = await db
+    .select({
+      id: spaces.id,
+      kind: spaces.kind,
+      name: spaces.name,
+      ownerId: spaces.ownerId,
+      leadId: spaces.leadId,
+      leadName: user.name,
+    })
+    .from(spaces)
+    .leftJoin(user, eq(user.id, spaces.leadId))
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+  if (!space) return null;
+
+  const admin = isAdminTier(viewer.role);
+  // Personal spaces are owner-only; company spaces are visible to members + lead.
+  let hasAccess = admin;
+  if (!hasAccess) {
+    if (space.kind === "personal") {
+      hasAccess = space.ownerId === viewer.id;
+    } else {
+      if (space.leadId === viewer.id) hasAccess = true;
+      else {
+        const [m] = await db
+          .select({ id: spaceMembers.id })
+          .from(spaceMembers)
+          .where(
+            and(
+              eq(spaceMembers.spaceId, spaceId),
+              eq(spaceMembers.userId, viewer.id),
+            ),
+          )
+          .limit(1);
+        hasAccess = Boolean(m);
+      }
+    }
+  }
+  if (!hasAccess) return null;
+
+  const [memberRows, projectRows] = await Promise.all([
+    db
+      .select({
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image,
+      })
+      .from(spaceMembers)
+      .innerJoin(user, eq(user.id, spaceMembers.userId))
+      .where(eq(spaceMembers.spaceId, spaceId))
+      .orderBy(desc(spaceMembers.createdAt)),
+    db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        slug: projects.slug,
+        status: projects.status,
+        color: projects.color,
+        archivedAt: projects.archivedAt,
+      })
+      .from(projects)
+      .where(eq(projects.spaceId, spaceId))
+      .orderBy(desc(projects.updatedAt)),
+  ]);
+
+  return {
+    id: space.id,
+    kind: space.kind,
+    name: space.name,
+    leadId: space.leadId,
+    leadName: space.leadName,
+    canManage: admin || space.leadId === viewer.id,
+    members: memberRows.map((m) => ({ ...m, isLead: m.userId === space.leadId })),
+    projects: projectRows,
+  };
+}
+
 // --- Input schemas -----------------------------------------------------------
 
 export const createSpaceInputSchema = z.object({

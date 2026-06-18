@@ -46,7 +46,16 @@ function formatRelative(date: Date | null) {
   return date.toLocaleDateString();
 }
 
-export function TokenManager({ tokens }: { tokens: TokenListItem[] }) {
+export function TokenManager({
+  tokens,
+  embedded = false,
+}: {
+  tokens: TokenListItem[];
+  // When embedded under a page that already has its own header (e.g. the
+  // consolidated account Settings page), drop the large accent banner for a
+  // compact section header so there aren't two stacked titles.
+  embedded?: boolean;
+}) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<TokenListItem | null>(null);
@@ -75,22 +84,17 @@ export function TokenManager({ tokens }: { tokens: TokenListItem[] }) {
 
   return (
     <div className="space-y-6">
-      <section className="ui-panel ui-header p-5 sm:p-6">
+      {embedded ? (
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
-              Settings · API tokens
-            </p>
-            <h1 className="mt-2 text-[24px] font-medium tracking-[-0.022em] text-foreground">
+            <h2 className="text-[17px] font-medium tracking-[-0.022em] text-foreground">
               Personal access tokens
-            </h1>
+            </h2>
             <p className="mt-1 max-w-prose text-[13px] leading-6 text-muted">
               Let an AI assistant or script act as you through the MCP endpoint
-              (<code className="font-mono text-[12px]">/api/mcp</code>) — read or
-              edit projects, tasks, categories, labels, requests, comments,
-              notes, members, and settings. A token can
-              never do more than you can, and is shown only once — treat it like a
-              password.
+              (<code className="font-mono text-[12px]">/api/mcp</code>). A token
+              can never do more than you can, and is shown only once — treat it
+              like a password.
             </p>
           </div>
           <button
@@ -102,7 +106,36 @@ export function TokenManager({ tokens }: { tokens: TokenListItem[] }) {
             New token
           </button>
         </div>
-      </section>
+      ) : (
+        <section className="ui-panel ui-header p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
+                Settings · API tokens
+              </p>
+              <h1 className="mt-2 text-[24px] font-medium tracking-[-0.022em] text-foreground">
+                Personal access tokens
+              </h1>
+              <p className="mt-1 max-w-prose text-[13px] leading-6 text-muted">
+                Let an AI assistant or script act as you through the MCP endpoint
+                (<code className="font-mono text-[12px]">/api/mcp</code>) — read or
+                edit projects, tasks, categories, labels, requests, comments,
+                notes, members, and settings. A token can
+                never do more than you can, and is shown only once — treat it like a
+                password.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="ui-button-primary shrink-0"
+            >
+              <Plus className="size-4" />
+              New token
+            </button>
+          </div>
+        </section>
+      )}
 
       <div className="ui-panel-soft divide-y divide-border">
         {tokens.length === 0 ? (

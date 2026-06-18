@@ -111,9 +111,16 @@ export function KeyboardShortcuts() {
       }
     }
 
+    // The sidebar "Shortcuts" button opens this same cheatsheet via a custom event.
+    function handleOpenRequest() {
+      setShowCheatsheet(true);
+    }
+
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("seeder:open-shortcuts", handleOpenRequest);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("seeder:open-shortcuts", handleOpenRequest);
       clearChord();
     };
   }, [router, pathname, searchParams, showCheatsheet, clearChord]);
