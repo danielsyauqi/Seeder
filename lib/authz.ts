@@ -245,7 +245,6 @@ export async function canPostToSpace(
   viewer: ViewerInput,
   spaceId: string,
 ): Promise<boolean> {
-  if (isAdminTier(viewer.role)) return true;
   const db = getDb();
   const [space] = await db
     .select({ kind: spaces.kind, ownerId: spaces.ownerId, leadId: spaces.leadId })
@@ -253,7 +252,11 @@ export async function canPostToSpace(
     .where(eq(spaces.id, spaceId))
     .limit(1);
   if (!space) return false;
+  // Personal spaces are owner-only — even an admin must not park a project in
+  // someone else's Personal space (its owner could never see it). Company
+  // spaces: lead or any workspace admin.
   if (space.kind === "personal") return space.ownerId === viewer.id;
+  if (isAdminTier(viewer.role)) return true;
   return space.leadId === viewer.id;
 }
 

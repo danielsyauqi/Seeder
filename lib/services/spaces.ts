@@ -292,16 +292,27 @@ export async function createSpace(
   const db = getDb();
   const id = crypto.randomUUID();
   const now = new Date();
-  await db.insert(spaces).values({
-    id,
-    kind: "company",
-    name: input.name,
-    ownerId: null,
-    leadId: viewer.id, // creator is the initial lead; reassign via setSpaceLead
-    createdBy: viewer.id,
-    createdAt: now,
-    updatedAt: now,
-  });
+  await db.batch([
+    db.insert(spaces).values({
+      id,
+      kind: "company",
+      name: input.name,
+      ownerId: null,
+      leadId: viewer.id, // creator is the initial lead; reassign via setSpaceLead
+      createdBy: viewer.id,
+      createdAt: now,
+      updatedAt: now,
+    }),
+    // The lead is also a member, so they're counted/listed and (if later
+    // demoted from admin) keep space-tier access.
+    db.insert(spaceMembers).values({
+      id: crypto.randomUUID(),
+      spaceId: id,
+      userId: viewer.id,
+      addedById: viewer.id,
+      createdAt: now,
+    }),
+  ]);
   return { spaceId: id, name: input.name };
 }
 
@@ -413,6 +424,13 @@ export async function setSpaceLead(
   const space = await loadCompanySpace(input.spaceId);
   const db = getDb();
   const now = new Date();
+  // The new lead must be a real workspace user (a bad id would orphan a row).
+  const [targetUser] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.id, input.userId))
+    .limit(1);
+  if (!targetUser) throw new Error("No user with that id.");
   // The lead is also a member — ensure a membership row exists.
   const [existing] = await db
     .select({ id: spaceMembers.id })
