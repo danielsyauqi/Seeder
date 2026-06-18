@@ -39,6 +39,11 @@ import {
   optionalText,
   parseDate,
 } from "@/lib/services/_shared";
+import {
+  ensurePersonalSpace,
+  resolveSpaceForCreate,
+} from "@/lib/services/spaces";
+import { canPostToSpace } from "@/lib/authz";
 import { isValidProjectColor } from "@/lib/swatches";
 
 // --- Reusable field validators (mirror the web schemas in lib/actions.ts) ----
@@ -87,6 +92,9 @@ export const createProjectInputSchema = z.object({
   color: colorField
     .optional()
     .describe("Project color swatch key, or empty to leave uncolored."),
+  spaceId: optionalText.describe(
+    "Space id to create the project in (from list-spaces). Must be your Personal space or a company space you can post to. Defaults to your Personal space.",
+  ),
 });
 export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
 
@@ -206,6 +214,8 @@ export async function createProject(
   const now = new Date();
   const projectId = crypto.randomUUID();
   const slug = await resolveSlugForCreate(input.slug, input.name);
+  // Default to the viewer's Personal space; a chosen space is validated.
+  const spaceId = await resolveSpaceForCreate(viewer, input.spaceId);
 
   // A project never exists without its default "Main" branch — insert both in
   // one atomic batch so task/request creation can always resolve a branch.
@@ -213,6 +223,7 @@ export async function createProject(
     db.insert(projects).values({
       id: projectId,
       ownerId: viewer.id,
+      spaceId,
       name: input.name,
       slug,
       clientName: input.clientName ?? null,
@@ -667,10 +678,17 @@ export async function duplicateProject(
   const requestIdMap = new Map<string, string>();
   const taskIdMap = new Map<string, string>();
   const branchIdMap = new Map<string, string>();
+  // Keep the copy in the source's space when the duplicator may still post
+  // there; otherwise drop it into their own Personal space.
+  const newSpaceId =
+    sourceProject.spaceId && (await canPostToSpace(viewer, sourceProject.spaceId))
+      ? sourceProject.spaceId
+      : await ensurePersonalSpace(viewer.id);
 
   await db.insert(projects).values({
     id: newProjectId,
     ownerId: viewer.id,
+    spaceId: newSpaceId,
     name: newProjectName,
     slug: newSlug,
     clientName: sourceProject.clientName,

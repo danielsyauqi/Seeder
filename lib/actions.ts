@@ -77,6 +77,7 @@ import {
   deleteBranch as deleteBranchService,
   renameBranch as renameBranchService,
 } from "@/lib/services/branches";
+import { moveProjectToSpace as moveProjectToSpaceService } from "@/lib/services/spaces";
 import { resolveDefaultBranchId } from "@/lib/services/_shared";
 import { isValidProjectColor } from "@/lib/swatches";
 import {
@@ -150,6 +151,7 @@ const projectCreateSchema = z.object({
       message: "Unknown project color.",
     })
     .optional(),
+  spaceId: optionalText,
 });
 
 const projectSlugSchema = z.object({
@@ -546,6 +548,35 @@ export async function createProjectAction(formData: FormData) {
 
   revalidateWorkspaceCollections();
   redirect(withFlash(`/projects/${projectId}`, "project-created"));
+}
+
+const moveProjectToSpaceSchema = z.object({
+  projectId: z.string().min(1),
+  spaceId: z.string().min(1),
+  returnTo: optionalText,
+});
+
+export async function moveProjectToSpaceAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = moveProjectToSpaceSchema.parse(toPayload(formData));
+
+  await moveProjectToSpaceService(viewer, {
+    projectId: payload.projectId,
+    spaceId: payload.spaceId,
+  });
+
+  // Moving changes who can see the project, so refresh the lists + the project.
+  revalidateWorkspaceCollections();
+  revalidateProjectViews(payload.projectId, {
+    overview: true,
+    settings: true,
+  });
+  redirect(
+    withFlash(
+      safeReturnPath(payload.returnTo, `/projects/${payload.projectId}/settings`),
+      "project-updated",
+    ),
+  );
 }
 
 const branchCreateSchema = z.object({

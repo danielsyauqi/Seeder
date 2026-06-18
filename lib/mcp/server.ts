@@ -26,6 +26,23 @@ import {
   renameBranchInputSchema,
 } from "@/lib/services/branches";
 import {
+  addSpaceMember,
+  addSpaceMemberInputSchema,
+  createSpace,
+  createSpaceInputSchema,
+  deleteSpace,
+  deleteSpaceInputSchema,
+  listSpaces,
+  moveProjectToSpace,
+  moveProjectToSpaceInputSchema,
+  removeSpaceMember,
+  removeSpaceMemberInputSchema,
+  renameSpace,
+  renameSpaceInputSchema,
+  setSpaceLead,
+  setSpaceLeadInputSchema,
+} from "@/lib/services/spaces";
+import {
   createTaskCategory,
   createTaskCategoryInputSchema,
   deleteTaskCategory,
@@ -267,6 +284,18 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
       annotations: { readOnlyHint: true },
     },
     async (args) => jsonResult(await listBranches(viewer, args)),
+  );
+
+  server.registerTool(
+    "list-spaces",
+    {
+      title: "List spaces",
+      description:
+        "List the spaces you can see: your Personal space plus any Company spaces you belong to or lead (workspace admins see all company spaces). Each has an id, kind (personal|company), name, lead, whether you can post projects to it, and member/project counts. Use a space id with create-project (spaceId) or move-project-to-space. Read-only.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => jsonResult(await listSpaces(viewer)),
   );
 
   server.registerTool(
@@ -589,6 +618,90 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
   );
 
   server.registerTool(
+    "create-space",
+    {
+      title: "Create space",
+      description:
+        "Create a shared Company space (named). Workspace owner/admin only — the creator becomes its initial lead; reassign with set-space-lead. Members added to the space get access to ALL its projects. CONFIRM the name with the user. Returns the new spaceId.",
+      inputSchema: createSpaceInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async (args) => runWrite(() => createSpace(viewer, args)),
+  );
+
+  server.registerTool(
+    "rename-space",
+    {
+      title: "Rename space",
+      description:
+        "Rename a Company space. Space lead or workspace admin only. CONFIRM with the user.",
+      inputSchema: renameSpaceInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args) => runWrite(() => renameSpace(viewer, args)),
+  );
+
+  server.registerTool(
+    "delete-space",
+    {
+      title: "Delete space",
+      description:
+        "Delete a Company space. Refused while it still holds projects (move or delete them first) — never cascades into destroying projects. Space lead or workspace admin only. CONFIRM with the user.",
+      inputSchema: deleteSpaceInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    async (args) => runWrite(() => deleteSpace(viewer, args)),
+  );
+
+  server.registerTool(
+    "add-space-member",
+    {
+      title: "Add space member",
+      description:
+        "Add an existing workspace user (by email or userId) to a Company space, granting them access to all its projects. Space lead or workspace admin only. CONFIRM with the user.",
+      inputSchema: addSpaceMemberInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args) => runWrite(() => addSpaceMember(viewer, args)),
+  );
+
+  server.registerTool(
+    "remove-space-member",
+    {
+      title: "Remove space member",
+      description:
+        "Remove a member from a Company space (revokes their access to its projects). Reassign the lead first if removing the current lead. Space lead or workspace admin only. CONFIRM with the user.",
+      inputSchema: removeSpaceMemberInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    async (args) => runWrite(() => removeSpaceMember(viewer, args)),
+  );
+
+  server.registerTool(
+    "set-space-lead",
+    {
+      title: "Set space lead",
+      description:
+        "Set the lead of a Company space (adds them as a member if needed). Current lead or workspace admin only. CONFIRM with the user.",
+      inputSchema: setSpaceLeadInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args) => runWrite(() => setSpaceLead(viewer, args)),
+  );
+
+  server.registerTool(
+    "move-project-to-space",
+    {
+      title: "Move project to space",
+      description:
+        "Move a project into a different space (changes who can see it). You must own the project (owner/admin) AND be able to post to the target space (its lead/admin, or your own Personal space). Explicit project members are kept. CONFIRM with the user.",
+      inputSchema: moveProjectToSpaceInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args) => runWrite(() => moveProjectToSpace(viewer, args)),
+  );
+
+  server.registerTool(
     "create-checklist-item",
     {
       title: "Add subtask",
@@ -845,7 +958,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Create project",
       description:
-        "Create a new project; you become its owner. CONFIRM the name and details with the user first — this writes to their workspace. The key/slug is auto-derived from the name if omitted. Returns the new projectId.",
+        "Create a new project; you become its owner. CONFIRM the name and details with the user first — this writes to their workspace. The key/slug is auto-derived from the name if omitted. Lands in your Personal space unless you pass a spaceId you can post to (see list-spaces). Returns the new projectId.",
       inputSchema: createProjectInputSchema.shape,
       annotations: {
         readOnlyHint: false,
