@@ -80,15 +80,6 @@ export default async function ProjectMembersPage({ params }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
-          Project · Members
-        </p>
-        <h1 className="mt-2 text-[24px] font-medium tracking-[-0.022em] text-foreground">
-          {project.name} — Members
-        </h1>
-      </div>
-
       <MembersManager
         projectId={project.id}
         owner={owner}
