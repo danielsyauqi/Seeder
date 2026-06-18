@@ -2113,9 +2113,11 @@ export async function createDailyTaskAction(formData: FormData) {
       }
       linkedTaskId = task.id;
     } else if (payload.bindToBoard) {
-      // Push: create a fresh card on the project's Execution Board. Daily ops
-      // isn't branch-aware, so the card lands on the project's Main branch.
-      const project = await assertProjectOwnership(projectId, viewer.id);
+      // Push: create a fresh card on the project's Execution Board. Creating a
+      // board task is Member-level (same as the board's New Task), so gate on
+      // project access, not ownership. Daily ops isn't branch-aware, so the card
+      // lands on the project's Main branch.
+      const project = await assertProjectTaskAccess(viewer, projectId);
       const branchId = await resolveDefaultBranchId(projectId);
       const sortOrder = await getNextTaskSortOrder(projectId, "todo", branchId);
       const newTaskId = crypto.randomUUID();

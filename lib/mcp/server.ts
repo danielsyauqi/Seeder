@@ -660,7 +660,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Create task category",
       description:
-        "Create a reusable task category (label + color swatch) in a project. Project owner only. CONFIRM the name and color with the user. Returns the new categoryId — pass it to create-task / update-task to tag a task. Names are unique per project.",
+        "Create a reusable task category (label + color swatch) in a project. Project owner or leader. CONFIRM the name and color with the user. Returns the new categoryId — pass it to create-task / update-task to tag a task. Names are unique per project.",
       inputSchema: createTaskCategoryInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -676,7 +676,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Update task category",
       description:
-        "Rename or recolor a task category. Only the fields you pass change (omit one to keep it). The new name/color cascade to every task already tagged with it. Project owner only. CONFIRM with the user.",
+        "Rename or recolor a task category. Only the fields you pass change (omit one to keep it). The new name/color cascade to every task already tagged with it. Project owner or leader. CONFIRM with the user.",
       inputSchema: updateTaskCategoryInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -692,7 +692,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Delete task category",
       description:
-        "Permanently delete a task category. Fails if any task still uses it — reassign or clear those tasks first. Project owner only. CONFIRM with the user — this cannot be undone.",
+        "Permanently delete a task category. Fails if any task still uses it — reassign or clear those tasks first. Project owner or leader. CONFIRM with the user — this cannot be undone.",
       inputSchema: deleteTaskCategoryInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -712,7 +712,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Create task label",
       description:
-        "Create a reusable task label (tag + color swatch) in a project. Project owner only. CONFIRM the name and color with the user. Returns the new labelId — pass it to add-task-label to tag tasks. Names are unique per project.",
+        "Create a reusable task label (tag + color swatch) in a project. Project owner or leader. CONFIRM the name and color with the user. Returns the new labelId — pass it to add-task-label to tag tasks. Names are unique per project.",
       inputSchema: createTaskLabelInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -728,7 +728,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Update task label",
       description:
-        "Rename or recolor a task label. Only the fields you pass change (omit one to keep it). Project owner only. CONFIRM with the user.",
+        "Rename or recolor a task label. Only the fields you pass change (omit one to keep it). Project owner or leader. CONFIRM with the user.",
       inputSchema: updateTaskLabelInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -744,7 +744,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Delete task label",
       description:
-        "Permanently delete a task label; this also removes it from every task that has it. Project owner only. CONFIRM with the user — this cannot be undone.",
+        "Permanently delete a task label; this also removes it from every task that has it. Project owner or leader. CONFIRM with the user — this cannot be undone.",
       inputSchema: deleteTaskLabelInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -1006,7 +1006,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Add project note",
       description:
-        "Add a note to a project. Markdown is accepted and converted to rich text. A project can hold many notes; each call adds a new one. Project owner only. CONFIRM with the user.",
+        "Add a note to a project. Markdown is accepted and converted to rich text. A project can hold many notes; each call adds a new one. Project owner or leader. CONFIRM with the user.",
       inputSchema: createProjectNoteInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -1168,7 +1168,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Remove project member",
       description:
-        "Remove a member from a project by userId (does not delete their account). Project owner or workspace admin only. CONFIRM with the user.",
+        "Remove a member from a project by userId (does not delete their account). Owner or leader may remove Members; only the owner may remove a Leader. CONFIRM with the user.",
       inputSchema: removeProjectMemberInputSchema.shape,
       annotations: {
         readOnlyHint: false,

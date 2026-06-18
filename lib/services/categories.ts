@@ -17,7 +17,7 @@ import { z } from "zod";
 import type { Viewer } from "@/lib/auth-server";
 import { canAccessProject } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { projects, taskCategories, tasks } from "@/lib/db/schema";
+import { taskCategories, tasks } from "@/lib/db/schema";
 import { assertProjectManage } from "@/lib/services/_shared";
 import { isValidProjectColor, PROJECT_SWATCHES } from "@/lib/swatches";
 
@@ -89,7 +89,7 @@ export type DeleteTaskCategoryInput = z.infer<
  * "Category not found." for both a missing category and one on a project the
  * viewer doesn't own (mirrors assertProjectManage's no-oracle posture).
  */
-async function assertCategoryOwner(viewer: Viewer, categoryId: string) {
+async function assertCategoryManage(viewer: Viewer, categoryId: string) {
   const db = getDb();
   const [row] = await db
     .select({
@@ -97,15 +97,14 @@ async function assertCategoryOwner(viewer: Viewer, categoryId: string) {
       projectId: taskCategories.projectId,
       name: taskCategories.name,
       color: taskCategories.color,
-      ownerId: projects.ownerId,
     })
     .from(taskCategories)
-    .innerJoin(projects, eq(projects.id, taskCategories.projectId))
     .where(eq(taskCategories.id, categoryId))
     .limit(1);
-  if (!row || row.ownerId !== viewer.id) {
-    throw new Error("Category not found.");
-  }
+  if (!row) throw new Error("Category not found.");
+  // Leader-level (owner or leader, plus workspace admins) — matches the create
+  // gate and the labels/notes/status-update siblings.
+  await assertProjectManage(viewer, row.projectId);
   return row;
 }
 
@@ -195,7 +194,7 @@ export async function updateTaskCategory(
   name: string;
   color: string;
 }> {
-  const category = await assertCategoryOwner(viewer, input.categoryId);
+  const category = await assertCategoryManage(viewer, input.categoryId);
   const db = getDb();
   const now = new Date();
 
@@ -234,7 +233,7 @@ export async function deleteTaskCategory(
   viewer: Viewer,
   input: DeleteTaskCategoryInput,
 ): Promise<{ categoryId: string; projectId: string }> {
-  const category = await assertCategoryOwner(viewer, input.categoryId);
+  const category = await assertCategoryManage(viewer, input.categoryId);
   const db = getDb();
 
   // Refuse to orphan tasks — the caller must reassign them first (matches the

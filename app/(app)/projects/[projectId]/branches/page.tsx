@@ -4,6 +4,7 @@ import { GitBranch } from "@phosphor-icons/react/dist/ssr";
 import { BranchIndexList } from "@/components/projects/branch-index-list";
 import { CreateBranchModal } from "@/components/projects/create-branch-modal";
 import { requireViewer } from "@/lib/auth-server";
+import { canManageProject } from "@/lib/authz";
 import { getProjectForUser } from "@/lib/data";
 import { listBranches } from "@/lib/services/branches";
 
@@ -22,7 +23,10 @@ export default async function ProjectBranchesPage({
     notFound();
   }
 
-  const branches = await listBranches(viewer, { projectId });
+  const [branches, canManage] = await Promise.all([
+    listBranches(viewer, { projectId }),
+    canManageProject(viewer, projectId),
+  ]);
 
   return (
     <section className="ui-panel p-5 sm:p-6">
@@ -45,7 +49,7 @@ export default async function ProjectBranchesPage({
         projectId={projectId}
         branches={branches}
         viewerId={viewer.id}
-        projectOwnerId={project.ownerId}
+        canManage={canManage}
       />
     </section>
   );

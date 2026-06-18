@@ -8,15 +8,16 @@
 // INSERT … ON CONFLICT DO UPDATE. Authz mirrors the web exactly: the actor must
 // own BOTH the task and the project, and only a task whose status is "done" can
 // be published. The summary is plain text, so it is stored verbatim.
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { logProjectActivity } from "@/lib/activity";
 import type { Viewer } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
-import { projectStatusUpdates, tasks } from "@/lib/db/schema";
+import { projectStatusUpdates } from "@/lib/db/schema";
 import {
   assertProjectManage,
+  assertTaskInProject,
   touchProject,
   touchTask,
 } from "@/lib/services/_shared";
@@ -45,32 +46,16 @@ export type DeleteStatusUpdateInput = z.infer<
   typeof deleteStatusUpdateInputSchema
 >;
 
-/** Load a task the viewer owns within the project, or throw (opaque). */
-async function assertOwnedTask(viewer: Viewer, taskId: string, projectId: string) {
-  const db = getDb();
-  const [task] = await db
-    .select()
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.id, taskId),
-        eq(tasks.projectId, projectId),
-        eq(tasks.ownerId, viewer.id),
-      ),
-    )
-    .limit(1);
-  if (!task) throw new Error("Task not found.");
-  return task;
-}
-
 export async function publishStatusUpdate(
   viewer: Viewer,
   input: PublishStatusUpdateInput,
 ): Promise<{ taskId: string }> {
   const db = getDb();
   const now = new Date();
-  const task = await assertOwnedTask(viewer, input.taskId, input.projectId);
+  // Publishing a client update is Leader-level over the project — any manager
+  // can publish for any task in the project, not just one they created.
   await assertProjectManage(viewer, input.projectId);
+  const task = await assertTaskInProject(input.taskId, input.projectId);
 
   if (task.status !== "done") {
     throw new Error("Only completed tasks can be published as client updates.");
@@ -117,17 +102,14 @@ export async function deleteStatusUpdate(
 ): Promise<{ taskId: string }> {
   const db = getDb();
   const now = new Date();
-  const task = await assertOwnedTask(viewer, input.taskId, input.projectId);
   await assertProjectManage(viewer, input.projectId);
+  const task = await assertTaskInProject(input.taskId, input.projectId);
 
+  // Delete the task's single published update regardless of who authored it —
+  // any project manager can remove it.
   await db
     .delete(projectStatusUpdates)
-    .where(
-      and(
-        eq(projectStatusUpdates.taskId, input.taskId),
-        eq(projectStatusUpdates.ownerId, viewer.id),
-      ),
-    );
+    .where(eq(projectStatusUpdates.taskId, input.taskId));
 
   await Promise.all([
     touchTask(input.taskId, now),

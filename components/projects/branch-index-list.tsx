@@ -22,7 +22,8 @@ type Props = {
   projectId: string;
   branches: BranchSummary[];
   viewerId: string;
-  projectOwnerId: string;
+  // Owner or leader (or workspace admin) — may delete any non-default branch.
+  canManage: boolean;
 };
 
 function branchHref(projectId: string, branch: BranchSummary) {
@@ -89,13 +90,11 @@ export function BranchIndexList({
   projectId,
   branches,
   viewerId,
-  projectOwnerId,
+  canManage,
 }: Props) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("updated");
   const [mineOnly, setMineOnly] = useState(false);
-
-  const isOwner = viewerId === projectOwnerId;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -170,9 +169,11 @@ export function BranchIndexList({
       {filtered.length ? (
         <div className="grid gap-2">
           {filtered.map((branch) => {
-            const canManage =
+            // A non-default branch can be deleted by a project manager
+            // (owner/leader/admin) or the branch's own creator.
+            const canDelete =
               !branch.isDefault &&
-              (isOwner || branch.createdById === viewerId);
+              (canManage || branch.createdById === viewerId);
             return (
               <div
                 key={branch.id}
@@ -215,7 +216,7 @@ export function BranchIndexList({
                   </div>
                 </Link>
                 <div className="flex shrink-0 items-center gap-2">
-                  {canManage ? (
+                  {canDelete ? (
                     <DeleteBranchButton projectId={projectId} branch={branch} />
                   ) : null}
                   <Link
