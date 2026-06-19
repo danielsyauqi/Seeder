@@ -148,3 +148,54 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   revalidatePath("/admin/users");
   return Response.json({ ok: true });
 }
+
+export async function DELETE(_request: Request, { params }: RouteParams) {
+  const viewer = await requireRole(["owner", "admin"]);
+  const { userId } = await params;
+
+  if (userId === viewer.id) {
+    return Response.json(
+      { error: "You cannot delete your own account." },
+      { status: 403 },
+    );
+  }
+
+  const db = getDb();
+  const [target] = await db
+    .select({ id: user.id, role: user.role, disabledAt: user.disabledAt })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (!target) {
+    return Response.json({ error: "User not found." }, { status: 404 });
+  }
+
+  // Must be deactivated first. Deletion is destructive and cascades (it removes
+  // every project the user OWNS, with all its tasks/history), so requiring the
+  // deactivated state makes it a deliberate two-step action. It also keeps an
+  // owner safe: the last ACTIVE owner can't be deactivated, so a deleted owner
+  // is never the last one standing.
+  if (!target.disabledAt) {
+    return Response.json(
+      { error: "Deactivate the user before deleting them." },
+      { status: 409 },
+    );
+  }
+
+  // Only an owner may delete another owner/admin account.
+  const targetIsPrivileged = target.role === "owner" || target.role === "admin";
+  if (targetIsPrivileged && viewer.role !== "owner") {
+    return Response.json(
+      { error: "Only an owner can delete an admin or owner account." },
+      { status: 403 },
+    );
+  }
+
+  // The FK graph does the rest: sessions/accounts/tokens, owned projects (and
+  // their tasks/notes/activity), memberships and authored comments all cascade;
+  // audit references (spaces.createdBy, notifications.actorId, …) go null.
+  await db.delete(user).where(eq(user.id, userId));
+
+  revalidatePath("/admin/users");
+  return Response.json({ ok: true });
+}
