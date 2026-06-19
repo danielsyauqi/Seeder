@@ -31,6 +31,7 @@ import {
   projects,
   projectStatusValues,
   taskChecklistItems,
+  taskStatuses,
   tasks,
 } from "@/lib/db/schema";
 import {
@@ -40,6 +41,7 @@ import {
   optionalText,
   parseDate,
 } from "@/lib/services/_shared";
+import { DEFAULT_STATUS_SEED } from "@/lib/services/statuses";
 import {
   ensurePersonalSpace,
   resolveSpaceForCreate,
@@ -249,6 +251,21 @@ export async function createProject(
       createdAt: now,
       updatedAt: now,
     }),
+    // Seed the default board columns (Todo / Doing / Done) so the project has a
+    // board to drop tasks into. createTask resolves the initial column from here.
+    db.insert(taskStatuses).values(
+      DEFAULT_STATUS_SEED.map((s, index) => ({
+        id: crypto.randomUUID(),
+        projectId,
+        name: s.name,
+        color: s.color,
+        sortOrder: index,
+        isInitial: s.isInitial,
+        isTerminal: s.isTerminal,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    ),
   ]);
 
   await logProjectActivity(db, {
@@ -637,6 +654,7 @@ export async function duplicateProject(
     sourceChecklistItems,
     sourceNote,
     sourceBranches,
+    sourceStatuses,
   ] = await Promise.all([
       db
         .select()
@@ -681,6 +699,12 @@ export async function duplicateProject(
       // Branches are project-scoped and shared (no ownerId), so clone all of
       // them — any owner's task/request may reference any branch.
       db.select().from(branches).where(eq(branches.projectId, input.projectId)),
+      // Board columns are project-scoped — clone all so each task can be remapped
+      // onto its cloned status (status_id is NOT NULL).
+      db
+        .select()
+        .from(taskStatuses)
+        .where(eq(taskStatuses.projectId, input.projectId)),
     ]);
 
   const now = new Date();
@@ -751,6 +775,33 @@ export async function duplicateProject(
     (sourceBranchId ? branchIdMap.get(sourceBranchId) : undefined) ??
     newDefaultBranchId;
 
+  // Clone the board columns and map each source status to its clone. tasks carry
+  // status_id (NOT NULL) plus denormalized name/color/terminal; the task insert
+  // remaps the id and keeps the denormalized fields from the source row.
+  const statusIdMap = new Map<string, string>();
+  let fallbackStatusId = "";
+  if (sourceStatuses.length) {
+    await db.insert(taskStatuses).values(
+      sourceStatuses.map((status) => {
+        const id = crypto.randomUUID();
+        statusIdMap.set(status.id, id);
+        // Prefer the initial column as the remap fallback; else the first.
+        if (status.isInitial || !fallbackStatusId) fallbackStatusId = id;
+        return {
+          id,
+          projectId: newProjectId,
+          name: status.name,
+          color: status.color,
+          sortOrder: status.sortOrder,
+          isTerminal: status.isTerminal,
+          isInitial: status.isInitial,
+          createdAt: now,
+          updatedAt: now,
+        };
+      }),
+    );
+  }
+
   // Re-number requests + tasks starting at 1 in the duplicate. Preserve source's
   // created_at order so old codes map predictably to new codes.
   if (sourceRequests.length) {
@@ -802,7 +853,10 @@ export async function duplicateProject(
           categoryName: task.categoryName,
           categoryColor: task.categoryColor,
           phase: task.phase,
-          status: task.status,
+          statusId: statusIdMap.get(task.statusId) ?? fallbackStatusId,
+          statusName: task.statusName,
+          statusColor: task.statusColor,
+          isTerminal: task.isTerminal,
           priority: task.priority,
           dueDate: task.dueDate,
           sortOrder: task.sortOrder,

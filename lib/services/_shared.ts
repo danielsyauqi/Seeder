@@ -2,7 +2,7 @@
 // "use server") — imported by BOTH the web route handler (app/api/workspace)
 // and the MCP server. Moved verbatim from app/api/workspace/route.ts so web
 // behavior is unchanged; the route and MCP now share one implementation.
-import { and, desc, eq, inArray, max } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max } from "drizzle-orm";
 import { z } from "zod";
 
 import type { Viewer } from "@/lib/auth-server";
@@ -21,10 +21,23 @@ import {
   projects,
   taskCategories,
   taskChecklistItems,
+  taskStatuses,
   tasks,
   user,
-  type TaskStatus,
 } from "@/lib/db/schema";
+
+/**
+ * The denormalized status fields written onto every task row. Mirrors the
+ * categoryName/categoryColor cache: a task carries its status's id, name, color,
+ * and terminal flag so reads never join task_statuses. The status service
+ * resyncs these on rename/recolor/terminal-toggle.
+ */
+export type ResolvedStatus = {
+  statusId: string;
+  statusName: string;
+  statusColor: string;
+  isTerminal: boolean;
+};
 
 /**
  * D1/SQLite reports a unique-index violation as an Error whose message contains
@@ -254,7 +267,7 @@ export async function assertTaskInProject(taskId: string, projectId: string) {
 
 export async function getNextTaskSortOrder(
   projectId: string,
-  status: TaskStatus,
+  statusId: string,
   branchId: string,
 ) {
   const db = getDb();
@@ -267,13 +280,77 @@ export async function getNextTaskSortOrder(
       and(
         eq(tasks.projectId, projectId),
         eq(tasks.branchId, branchId),
-        eq(tasks.status, status),
+        eq(tasks.statusId, statusId),
       ),
     )
     .orderBy(desc(tasks.sortOrder))
     .limit(1);
 
   return (latest?.sortOrder ?? -1) + 1;
+}
+
+/**
+ * The column a newly-created task lands in: the project's flagged initial status,
+ * falling back to the lowest-sorted column. Replaces the old hardcoded "todo".
+ * Throws if the project somehow has no statuses (corrupt data — every project is
+ * seeded by migration 0034 and createProject).
+ */
+export async function getProjectInitialStatus(
+  projectId: string,
+): Promise<ResolvedStatus> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: taskStatuses.id,
+      name: taskStatuses.name,
+      color: taskStatuses.color,
+      isTerminal: taskStatuses.isTerminal,
+    })
+    .from(taskStatuses)
+    .where(eq(taskStatuses.projectId, projectId))
+    .orderBy(desc(taskStatuses.isInitial), asc(taskStatuses.sortOrder))
+    .limit(1);
+  if (!row) throw new Error("Project has no statuses.");
+  return {
+    statusId: row.id,
+    statusName: row.name,
+    statusColor: row.color,
+    isTerminal: row.isTerminal,
+  };
+}
+
+/**
+ * Resolve the status fields to write on a task. An explicit statusId is validated
+ * against the project (a foreign/unknown id throws, so a bad call fails loudly
+ * rather than silently moving the task to another column); omitted → the
+ * project's initial status. Returns the denormalized cache written onto tasks.
+ */
+export async function resolveStatusForWrite(
+  statusId: string | undefined | null,
+  projectId: string,
+): Promise<ResolvedStatus> {
+  if (!statusId) return getProjectInitialStatus(projectId);
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: taskStatuses.id,
+      name: taskStatuses.name,
+      color: taskStatuses.color,
+      isTerminal: taskStatuses.isTerminal,
+      projectId: taskStatuses.projectId,
+    })
+    .from(taskStatuses)
+    .where(eq(taskStatuses.id, statusId))
+    .limit(1);
+  if (!row || row.projectId !== projectId) {
+    throw new Error("Status not found in this project.");
+  }
+  return {
+    statusId: row.id,
+    statusName: row.name,
+    statusColor: row.color,
+    isTerminal: row.isTerminal,
+  };
 }
 
 /**

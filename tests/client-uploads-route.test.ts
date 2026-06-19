@@ -29,7 +29,7 @@ const storageGet = vi.fn(async (key: string) =>
 vi.mock("@/lib/storage", () => ({ getStorage: () => ({ get: storageGet }) }));
 
 import { getDb } from "@/lib/db";
-import { projects, tasks, user } from "@/lib/db/schema";
+import { projects, tasks, taskStatuses, user } from "@/lib/db/schema";
 import { GET } from "@/app/api/client/[token]/uploads/[...path]/route";
 
 const TOKEN = "auroraBoard_3kP9xZ2mQ7wL5vN8rT6yH1";
@@ -70,6 +70,15 @@ beforeAll(async () => {
       clientShareToken: "atlasTok",
     },
   ]);
+  await db.insert(taskStatuses).values({
+    id: "st-shared-todo",
+    projectId: SHARED_ID,
+    name: "Todo",
+    color: "#8a8f98",
+    sortOrder: 0,
+    isInitial: true,
+    isTerminal: false,
+  });
   // Only "images/pic.png" is referenced by the shared board; "images/secret.png"
   // exists in the bucket but is referenced by nothing.
   await db.insert(tasks).values({
@@ -79,7 +88,10 @@ beforeAll(async () => {
     title: "Has image",
     description:
       '{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/uploads/images/pic.png"}}]}',
-    status: "todo",
+    statusId: "st-shared-todo",
+    statusName: "Todo",
+    statusColor: "#8a8f98",
+    isTerminal: false,
     sortOrder: 0,
   });
 });

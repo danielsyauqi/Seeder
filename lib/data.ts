@@ -37,6 +37,7 @@ import {
   taskChecklistItems,
   taskComments,
   taskLabels,
+  taskStatuses,
   taskTaskLabels,
   tasks,
   user,
@@ -62,10 +63,11 @@ function createRequestCounts() {
 }
 
 function createTaskCounts() {
+  // With per-project custom statuses, "todo vs doing" is no longer a meaningful
+  // global split — a task is either in a terminal (done) column or an open one.
   return {
     total: 0,
-    todo: 0,
-    doing: 0,
+    open: 0,
     done: 0,
     overdue: 0,
   };
@@ -194,18 +196,16 @@ function buildProjectStats(
 
     counts.total += 1;
 
-    if (task.status === "todo") {
-      counts.todo += 1;
-    } else if (task.status === "doing") {
-      counts.doing += 1;
-    } else if (task.status === "done") {
+    if (task.isTerminal) {
       counts.done += 1;
+    } else {
+      counts.open += 1;
     }
 
     if (
       task.dueDate &&
       task.dueDate.getTime() < now.getTime() &&
-      task.status !== "done"
+      !task.isTerminal
     ) {
       counts.overdue += 1;
     }
@@ -217,7 +217,7 @@ function buildProjectStats(
     const requestCounts =
       requestCountsByProject.get(project.id) ?? createRequestCounts();
     const taskCounts = taskCountsByProject.get(project.id) ?? createTaskCounts();
-    const openTasks = taskCounts.todo + taskCounts.doing;
+    const openTasks = taskCounts.open;
     const completionRate = taskCounts.total
       ? Math.round((taskCounts.done / taskCounts.total) * 100)
       : 0;
@@ -259,9 +259,8 @@ function buildSummary(projectList: ReturnType<typeof buildProjectStats>) {
       (sum, project) => sum + project.requestCounts.inbox,
       0,
     ),
-    tasksTodo: projectList.reduce((sum, project) => sum + project.taskCounts.todo, 0),
-    tasksInProgress: projectList.reduce(
-      (sum, project) => sum + project.taskCounts.doing,
+    tasksOpen: projectList.reduce(
+      (sum, project) => sum + project.taskCounts.open,
       0,
     ),
     totalTasks: projectList.reduce(
@@ -498,7 +497,7 @@ function buildSearchIndex(
         id: `task-${task.id}`,
         kind: "task" as const,
         title: task.title,
-        subtitle: `${project.name} • ${task.status}`,
+        subtitle: `${project.name} • ${task.statusName}`,
         code,
         href: getTaskHref(
           task.projectId,
@@ -508,13 +507,13 @@ function buildSearchIndex(
         projectId: task.projectId,
         projectName: project.name,
         projectColor: project.color ?? null,
-        status: task.status,
+        status: task.statusName,
         archived: Boolean(project.archivedAt),
         updatedAt: task.updatedAt.getTime(),
         searchText: normalizeSearchText([
           task.title,
           task.description,
-          task.status,
+          task.statusName,
           task.priority,
           task.categoryName,
           task.phase,
@@ -606,7 +605,7 @@ function buildNotifications(
         }> = [];
 
         if (
-          task.status !== "done" &&
+          !task.isTerminal &&
           task.dueDate &&
           task.dueDate.getTime() < today.getTime()
         ) {
@@ -624,7 +623,7 @@ function buildNotifications(
             createdAt: task.updatedAt,
           });
         } else if (
-          task.status !== "done" &&
+          !task.isTerminal &&
           task.dueDate &&
           task.dueDate.getTime() >= today.getTime() &&
           task.dueDate.getTime() < endOfToday.getTime()
@@ -644,7 +643,7 @@ function buildNotifications(
           });
         }
 
-        if (task.status === "done" && !publishedTaskIds.has(task.id)) {
+        if (task.isTerminal && !publishedTaskIds.has(task.id)) {
           notifications.push({
             id: `task-update-${task.id}`,
             tone: "default",
@@ -873,7 +872,10 @@ export async function getPublicProjectBoard(shareToken: string) {
           categoryName: tasks.categoryName,
           categoryColor: tasks.categoryColor,
           phase: tasks.phase,
-          status: tasks.status,
+          statusId: tasks.statusId,
+          statusName: tasks.statusName,
+          statusColor: tasks.statusColor,
+          isTerminal: tasks.isTerminal,
           priority: tasks.priority,
           dueDate: tasks.dueDate,
           requestId: tasks.requestId,
@@ -964,9 +966,27 @@ export async function getPublicProjectBoard(shareToken: string) {
       : publicTasks.map((task) => ({ ...task, description: null }))
     : [];
 
+  // The project's board columns, so the public board renders the same dynamic
+  // columns the owner sees (in order). Empty when the board is hidden.
+  const boardStatuses = project.showBoard
+    ? await db
+        .select({
+          id: taskStatuses.id,
+          name: taskStatuses.name,
+          color: taskStatuses.color,
+          sortOrder: taskStatuses.sortOrder,
+          isTerminal: taskStatuses.isTerminal,
+          isInitial: taskStatuses.isInitial,
+        })
+        .from(taskStatuses)
+        .where(eq(taskStatuses.projectId, project.id))
+        .orderBy(asc(taskStatuses.sortOrder), asc(taskStatuses.name))
+    : [];
+
   return {
     project,
     tasks: visibleTasks,
+    statuses: boardStatuses,
     statusUpdates: project.showCommits
       ? statusUpdates.map((update) => ({
           ...update,
@@ -1172,6 +1192,7 @@ export async function getProjectWorkspace(
     categoryRows,
     labelRows,
     taskLabelRows,
+    statusRows,
   ] = await Promise.all([
     db
       .select()
@@ -1304,6 +1325,18 @@ export async function getProjectWorkspace(
       .innerJoin(taskLabels, eq(taskLabels.id, taskTaskLabels.labelId))
       .where(eq(taskLabels.projectId, projectId))
       .orderBy(asc(taskLabels.name)),
+    db
+      .select({
+        id: taskStatuses.id,
+        name: taskStatuses.name,
+        color: taskStatuses.color,
+        sortOrder: taskStatuses.sortOrder,
+        isTerminal: taskStatuses.isTerminal,
+        isInitial: taskStatuses.isInitial,
+      })
+      .from(taskStatuses)
+      .where(eq(taskStatuses.projectId, projectId))
+      .orderBy(asc(taskStatuses.sortOrder), asc(taskStatuses.name)),
   ]);
 
   // Group label memberships by task so each board task carries its labels.
@@ -1358,6 +1391,7 @@ export async function getProjectWorkspace(
     requestComments: requestCommentRows,
     categories: categoryRows,
     labels: labelRows,
+    statuses: statusRows,
   };
 }
 
@@ -1644,7 +1678,7 @@ export async function getTodayViewForUser(userId: string) {
       const daysUntilDue = task.dueDate ? getDayDistance(task.dueDate, today) : null;
       const isOverdue =
         task.dueDate !== null &&
-        task.status !== "done" &&
+        !task.isTerminal &&
         task.dueDate.getTime() < today.getTime();
 
       return {
@@ -1675,7 +1709,7 @@ export async function getTodayViewForUser(userId: string) {
     .filter(
       (task) =>
         task.dueDate !== null &&
-        task.status !== "done" &&
+        !task.isTerminal &&
         task.dueDate.getTime() >= today.getTime() &&
         task.dueDate.getTime() < today.getTime() + 86_400_000,
     )
@@ -1689,7 +1723,7 @@ export async function getTodayViewForUser(userId: string) {
     .filter(
       (task) =>
         task.dueDate !== null &&
-        task.status !== "done" &&
+        !task.isTerminal &&
         task.dueDate.getTime() >= today.getTime() + 86_400_000 &&
         task.dueDate.getTime() < nextWeek.getTime(),
     )
@@ -1700,7 +1734,7 @@ export async function getTodayViewForUser(userId: string) {
     );
 
   const activeWithoutDate = visibleTasks
-    .filter((task) => task.status === "doing" && task.dueDate === null)
+    .filter((task) => !task.isTerminal && task.dueDate === null)
     .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
 
   return {
@@ -1749,7 +1783,8 @@ export async function getDailyTasksForUser(
       projectName: projects.name,
       projectSlug: projects.slug,
       projectColor: projects.color,
-      linkedStatus: tasks.status,
+      linkedStatus: tasks.statusName,
+      linkedStatusColor: tasks.statusColor,
       linkedCodeNumber: tasks.codeNumber,
       linkedProjectId: tasks.projectId,
     })
@@ -1799,7 +1834,7 @@ export async function getDailyPlannerProjects(userId: string) {
 
   const tasksByProject = new Map<string, typeof tasksForOwner>();
   for (const task of tasksForOwner) {
-    if (task.status === "done") continue;
+    if (task.isTerminal) continue;
     const list = tasksByProject.get(task.projectId) ?? [];
     list.push(task);
     tasksByProject.set(task.projectId, list);
@@ -1815,7 +1850,8 @@ export async function getDailyPlannerProjects(userId: string) {
       .map((task) => ({
         id: task.id,
         title: task.title,
-        status: task.status,
+        status: task.statusName,
+        statusColor: task.statusColor,
         code: formatTaskCode(project.slug, task.codeNumber),
       })),
   }));

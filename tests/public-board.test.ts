@@ -25,6 +25,7 @@ import { getDb } from "@/lib/db";
 import {
   projects,
   tasks,
+  taskStatuses,
   projectStatusUpdates,
   taskChecklistItems,
   taskComments,
@@ -87,6 +88,13 @@ beforeAll(async () => {
     },
   ]);
 
+  await db.insert(taskStatuses).values([
+    { id: "st-shared-todo", projectId: SHARED_ID, name: "Todo", color: "#8a8f98", sortOrder: 0, isInitial: true, isTerminal: false },
+    { id: "st-shared-doing", projectId: SHARED_ID, name: "Doing", color: "#5e6ad2", sortOrder: 1, isInitial: false, isTerminal: false },
+    { id: "st-shared-done", projectId: SHARED_ID, name: "Done", color: "#27a644", sortOrder: 2, isInitial: false, isTerminal: true },
+    { id: "st-private-todo", projectId: PRIVATE_ID, name: "Todo", color: "#8a8f98", sortOrder: 0, isInitial: true, isTerminal: false },
+  ]);
+
   await db.insert(tasks).values([
     {
       id: "task-shared",
@@ -94,7 +102,10 @@ beforeAll(async () => {
       projectId: SHARED_ID,
       title: "Shared task",
       description: '{"type":"doc","content":[]}',
-      status: "doing",
+      statusId: "st-shared-doing",
+      statusName: "Doing",
+      statusColor: "#5e6ad2",
+      isTerminal: false,
       sortOrder: 0,
     },
     {
@@ -103,7 +114,10 @@ beforeAll(async () => {
       projectId: PRIVATE_ID,
       title: "SECRET private task",
       description: "internal-only",
-      status: "todo",
+      statusId: "st-private-todo",
+      statusName: "Todo",
+      statusColor: "#8a8f98",
+      isTerminal: false,
       sortOrder: 0,
     },
   ]);
@@ -216,7 +230,10 @@ describe("getPublicProjectBoard", () => {
       title: "Task with image",
       description:
         '{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/uploads/images/pic.png"}}]}',
-      status: "todo",
+      statusId: "st-shared-todo",
+      statusName: "Todo",
+      statusColor: "#8a8f98",
+      isTerminal: false,
       sortOrder: 1,
     });
 

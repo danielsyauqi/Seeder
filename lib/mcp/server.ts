@@ -12,7 +12,7 @@ import { z } from "zod";
 
 import type { Viewer } from "@/lib/auth-server";
 import type { TokenAuth } from "@/lib/auth-token";
-import { requestStatusValues, taskStatusValues } from "@/lib/db/schema";
+import { requestStatusValues } from "@/lib/db/schema";
 import {
   createBranch,
   createBranchInputSchema,
@@ -42,6 +42,18 @@ import {
   setSpaceLead,
   setSpaceLeadInputSchema,
 } from "@/lib/services/spaces";
+import {
+  createTaskStatus,
+  createTaskStatusInputSchema,
+  deleteTaskStatus,
+  deleteTaskStatusInputSchema,
+  listTaskStatuses,
+  listTaskStatusesInputSchema,
+  reorderTaskStatuses,
+  reorderTaskStatusesInputSchema,
+  updateTaskStatusDef,
+  updateTaskStatusDefInputSchema,
+} from "@/lib/services/statuses";
 import {
   createTaskCategory,
   createTaskCategoryInputSchema,
@@ -250,10 +262,10 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
     {
       title: "List tasks",
       description:
-        "List tasks in projects you can access. Filter by projectId, status (todo/doing/done), assignedToMe, or branch (a branch id from list-branches — omit to list across all branches). Capped at 100 — use filters to narrow. Read-only.",
+        "List tasks in projects you can access. Filter by projectId, statusId (a status id from list-task-statuses), assignedToMe, or branch (a branch id from list-branches — omit to list across all branches). Capped at 100 — use filters to narrow. Read-only.",
       inputSchema: {
         projectId: z.string().optional(),
-        status: z.enum(taskStatusValues).optional(),
+        statusId: z.string().optional(),
         assignedToMe: z.boolean().optional(),
         branchId: z.string().optional(),
       },
@@ -296,6 +308,18 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
       annotations: { readOnlyHint: true },
     },
     async () => jsonResult(await listSpaces(viewer)),
+  );
+
+  server.registerTool(
+    "list-task-statuses",
+    {
+      title: "List task statuses",
+      description:
+        "List a project's board statuses/columns (id, name, color, order, whether each is the initial column new tasks land in or a terminal/done column, and how many tasks are in each). Use this to find a statusId before create-task, update-task, or update-task-status. Returns [] if you can't access the project. Read-only.",
+      inputSchema: listTaskStatusesInputSchema.shape,
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => jsonResult(await listTaskStatuses(viewer, args)),
   );
 
   server.registerTool(
@@ -494,7 +518,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Update task",
       description:
-        "Update ALL editable fields of a task (title, description, status, priority, dueDate, assignee, category, phase). This REPLACES fields — read the task first and pass the full set, or omitted fields are cleared. CONFIRM with the user.",
+        "Update ALL editable fields of a task (title, description, statusId, priority, dueDate, assignee, category, phase). statusId is a status id from list-task-statuses. This REPLACES fields — read the task first and pass the full set, or omitted fields are cleared. CONFIRM with the user.",
       inputSchema: updateTaskInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -510,7 +534,7 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
     {
       title: "Update task status",
       description:
-        "Move a task to a new status (todo/doing/done) without touching its other fields. Convenience over update-task. CONFIRM the move with the user.",
+        "Move a task to a different status/column without touching its other fields, by statusId (get the project's statuses from list-task-statuses). Convenience over update-task. CONFIRM the move with the user.",
       inputSchema: updateTaskStatusInputSchema.shape,
       annotations: {
         readOnlyHint: false,
@@ -762,6 +786,74 @@ function registerWriteTools(server: McpServer, viewer: Viewer) {
       },
     },
     async (args) => runWrite(() => deleteChecklistItem(viewer, args)),
+  );
+
+  // --- Task statuses (board columns) ----------------------------------------
+  // Per-project custom statuses. Listing is a read tool (list-task-statuses);
+  // creating/editing/deleting/reordering needs taxonomy.manage, matching the web.
+
+  server.registerTool(
+    "create-task-status",
+    {
+      title: "Create task status",
+      description:
+        "Add a new board status/column (name + color swatch) to a project, appended after the existing columns. Optionally mark it terminal (a Done-equivalent). Project owner or leader. CONFIRM the name and color with the user. Returns the new statusId. Names are unique per project.",
+      inputSchema: createTaskStatusInputSchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args) => runWrite(() => createTaskStatus(viewer, args)),
+  );
+
+  server.registerTool(
+    "update-task-status-definition",
+    {
+      title: "Update task status definition",
+      description:
+        "Rename, recolor, or toggle the initial/terminal flags of a board status. Only the fields you pass change. Name/color/terminal changes cascade to every task in that column. Enforces at least one initial and one terminal status per project. Project owner or leader. CONFIRM with the user.",
+      inputSchema: updateTaskStatusDefInputSchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => runWrite(() => updateTaskStatusDef(viewer, args)),
+  );
+
+  server.registerTool(
+    "reorder-task-statuses",
+    {
+      title: "Reorder task statuses",
+      description:
+        "Set the left-to-right order of a project's board columns. Pass ALL of the project's status ids in the desired order (get them from list-task-statuses). Project owner or leader. CONFIRM with the user.",
+      inputSchema: reorderTaskStatusesInputSchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => runWrite(() => reorderTaskStatuses(viewer, args)),
+  );
+
+  server.registerTool(
+    "delete-task-status",
+    {
+      title: "Delete task status",
+      description:
+        "Permanently delete a board status/column. Fails if any task is still in it (move them first), or if it's the project's only / only-initial / only-terminal status. Project owner or leader. CONFIRM with the user — this cannot be undone.",
+      inputSchema: deleteTaskStatusInputSchema.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args) => runWrite(() => deleteTaskStatus(viewer, args)),
   );
 
   // --- Task categories ------------------------------------------------------

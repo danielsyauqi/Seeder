@@ -6,6 +6,7 @@ import { CalendarDots, CheckSquare, Square, X } from "@phosphor-icons/react";
 
 import RichTextRenderer from "@/components/rich-text/rich-text-renderer";
 import type { BoardTask } from "@/components/projects/kanban-board";
+import { StatusBadge } from "@/components/projects/status-badge";
 import { formatDate } from "@/lib/utils";
 
 export type ClientSubtask = {
@@ -18,11 +19,6 @@ export type ClientTask = BoardTask & {
   subtasks: ClientSubtask[];
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  todo: "Todo",
-  doing: "Doing",
-  done: "Done",
-};
 const PRIORITY_LABEL: Record<string, string> = {
   low: "Low",
   medium: "Medium",
@@ -176,9 +172,7 @@ export function ClientTaskModal({
                   Details
                 </p>
                 <Detail label="Status">
-                  <span className="ui-badge">
-                    {STATUS_LABEL[task.status] ?? task.status}
-                  </span>
+                  <StatusBadge name={task.statusName} color={task.statusColor} />
                 </Detail>
                 <Detail label="Priority">
                   <span className="ui-badge">

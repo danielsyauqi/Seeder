@@ -132,9 +132,8 @@ export function AdminProjectsList({ projects }: Props) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-4 gap-2 lg:max-w-130 lg:flex-1">
-                    <Stat label="Todo" value={project.tasksTodo} />
-                    <Stat label="Doing" value={project.tasksDoing} />
+                  <div className="grid grid-cols-3 gap-2 lg:max-w-130 lg:flex-1">
+                    <Stat label="Open" value={project.tasksOpen} />
                     <Stat label="Done" value={project.tasksDone} />
                     <Stat label="Members" value={project.memberCount} />
                   </div>

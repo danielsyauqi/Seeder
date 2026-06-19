@@ -9,6 +9,7 @@ import {
 
 import { ActivityFeed } from "@/components/projects/activity-feed";
 import { ProjectColorBadge } from "@/components/projects/project-color-badge";
+import { StatusBadge } from "@/components/projects/status-badge";
 import { requireSession } from "@/lib/auth-server";
 import {
   getDailyTasksForUser,
@@ -30,7 +31,10 @@ type UnifiedTodayItem = {
   source: "daily" | "board";
   title: string;
   description: string | null;
-  status: "todo" | "doing" | "done";
+  status: string;
+  // Board items carry their custom status color; daily items leave it null and
+  // fall back to the fixed-status tone map.
+  statusColor: string | null;
   kindLabel: string;
   isProject: boolean;
   projectColor: string | null;
@@ -39,7 +43,8 @@ type UnifiedTodayItem = {
   dueLabel: string | null;
   dueState: string | null;
   isOverdue: boolean;
-  linkedStatus: "todo" | "doing" | "done" | null;
+  linkedStatus: string | null;
+  linkedStatusColor: string | null;
   boardHref: string | null;
 };
 
@@ -126,7 +131,7 @@ function TaskSection({
                       name={task.projectName}
                       color={task.projectColor}
                     />
-                    <span className="ui-badge">{task.status}</span>
+                    <StatusBadge name={task.statusName} color={task.statusColor} />
                   </div>
                   <div>
                     {task.code ? (
@@ -211,14 +216,20 @@ function UnifiedTodaySection({ items }: { items: UnifiedTodayItem[] }) {
                       ) : (
                         <span className="ui-badge">{item.kindLabel}</span>
                       )}
-                      <span
-                        className={cn(
-                          "inline-flex rounded-sm border px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-[0.04em]",
-                          statusBadgeTone[item.status],
-                        )}
-                      >
-                        {item.status}
-                      </span>
+                      {item.statusColor ? (
+                        <StatusBadge name={item.status} color={item.statusColor} />
+                      ) : (
+                        <span
+                          className={cn(
+                            "inline-flex rounded-sm border px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-[0.04em]",
+                            statusBadgeTone[
+                              item.status as "todo" | "doing" | "done"
+                            ] ?? "border-border bg-surface text-muted",
+                          )}
+                        >
+                          {item.status}
+                        </span>
+                      )}
                       <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
                         {item.source === "daily" ? "Planned" : "Board"}
                       </span>
@@ -263,7 +274,11 @@ function UnifiedTodaySection({ items }: { items: UnifiedTodayItem[] }) {
                       {item.linkedStatus ? (
                         <span className="inline-flex items-center gap-1.5">
                           <Kanban className="size-3.5" />
-                          board: {item.linkedStatus}
+                          board:{" "}
+                          <StatusBadge
+                            name={item.linkedStatus}
+                            color={item.linkedStatusColor}
+                          />
                         </span>
                       ) : null}
                     </>
@@ -319,7 +334,8 @@ export default async function TodayPage() {
     source: "board",
     title: task.title,
     description: task.description,
-    status: task.status,
+    status: task.statusName,
+    statusColor: task.statusColor,
     kindLabel: task.projectName,
     isProject: true,
     projectColor: task.projectColor,
@@ -329,6 +345,7 @@ export default async function TodayPage() {
     dueState: formatDueState(task),
     isOverdue: task.isOverdue,
     linkedStatus: null,
+    linkedStatusColor: null,
     boardHref: null,
   });
 
@@ -340,6 +357,7 @@ export default async function TodayPage() {
     title: item.title,
     description: item.description,
     status: item.status,
+    statusColor: null,
     kindLabel:
       item.kind === "project" ? item.projectName ?? "Project" : "Adhoc",
     isProject: item.kind === "project",
@@ -350,6 +368,7 @@ export default async function TodayPage() {
     dueState: null,
     isOverdue: false,
     linkedStatus: item.linkedTaskId ? item.linkedStatus : null,
+    linkedStatusColor: item.linkedTaskId ? item.linkedStatusColor : null,
     boardHref: item.boardHref,
   });
 

@@ -66,7 +66,9 @@ type WorkspaceModalState =
   | {
       kind: WorkspaceModalKind;
       taskId?: string | null;
-      taskStatus?: "todo" | "doing" | "done" | null;
+      // Whether the task is in a terminal/done status — gates the "publish client
+      // update" action (only terminal tasks can be published).
+      taskIsTerminal?: boolean | null;
       requestId?: string | null;
     }
   | null;
@@ -75,10 +77,7 @@ type ProjectWorkspaceUiContextValue = {
   openModal: (state: NonNullable<WorkspaceModalState>) => void;
   openTask: (taskId: string) => void;
   openRequest: (requestId: string) => void;
-  openStatusUpdate: (
-    taskId: string,
-    taskStatus?: "todo" | "doing" | "done" | null,
-  ) => void;
+  openStatusUpdate: (taskId: string, isTerminal?: boolean | null) => void;
   closeModal: () => void;
 };
 
@@ -741,7 +740,7 @@ function ProjectWorkspaceModalHost({
       })
     : currentPath;
   const canCommit =
-    modalState?.taskStatus === "done" || selectedTask?.status === "done";
+    (modalState?.taskIsTerminal ?? selectedTask?.isTerminal) === true;
   const errorNotice = mutationError ? (
     <div className="rounded-md border border-danger/30 bg-danger/10 px-3.5 py-2.5 text-sm leading-6 text-danger">
       {mutationError}
@@ -855,7 +854,7 @@ function ProjectWorkspaceModalHost({
           openModal({
             kind: "task",
             taskId: selectedTask.id,
-            taskStatus: modalState.taskStatus ?? selectedTask.status,
+            taskIsTerminal: modalState.taskIsTerminal ?? selectedTask.isTerminal,
           })
         }
         title="Add subtask"
@@ -898,7 +897,7 @@ function ProjectWorkspaceModalHost({
             openModal({
               kind: "task",
               taskId: selectedTask.id,
-              taskStatus: modalState.taskStatus ?? selectedTask.status,
+              taskIsTerminal: modalState.taskIsTerminal ?? selectedTask.isTerminal,
             });
             refreshWorkspace();
           }}
@@ -963,7 +962,7 @@ function ProjectWorkspaceModalHost({
               categoryId: getFormValue(formData, "categoryId"),
               labelIds: getFormValue(formData, "labelIds"),
               phase: getFormValue(formData, "phase"),
-              status: getFormValue(formData, "status"),
+              statusId: getFormValue(formData, "statusId"),
               priority: getFormValue(formData, "priority"),
               dueDate: getFormValue(formData, "dueDate"),
               assigneeId: getFormValue(formData, "assigneeId"),
@@ -1017,7 +1016,7 @@ function ProjectWorkspaceModalHost({
                     openModal({
                       kind: "new-checklist-item",
                       taskId: selectedTask.id,
-                      taskStatus: modalState.taskStatus ?? selectedTask.status,
+                      taskIsTerminal: modalState.taskIsTerminal ?? selectedTask.isTerminal,
                     })
                   }
                   className="ui-button-secondary"
@@ -1215,13 +1214,15 @@ function ProjectWorkspaceModalHost({
               <label className="grid gap-1.5">
                 <span className="text-[12px] font-medium text-foreground">Status</span>
                 <select
-                  name="status"
-                  defaultValue={selectedTask.status}
+                  name="statusId"
+                  defaultValue={selectedTask.statusId}
                   className={selectClassName}
                 >
-                  <option value="todo">Todo</option>
-                  <option value="doing">Doing</option>
-                  <option value="done">Done</option>
+                  {workspace.statuses.map((status) => (
+                    <option key={status.id} value={status.id}>
+                      {status.name}
+                    </option>
+                  ))}
                 </select>
               </label>
 
@@ -1339,7 +1340,7 @@ function ProjectWorkspaceModalHost({
                 openModal({
                   kind: "delete-task",
                   taskId: selectedTask.id,
-                  taskStatus: modalState.taskStatus ?? selectedTask.status,
+                  taskIsTerminal: modalState.taskIsTerminal ?? selectedTask.isTerminal,
                 })
               }
               className="ui-button-danger w-full"
@@ -1385,7 +1386,7 @@ function ProjectWorkspaceModalHost({
           openModal({
             kind: "task",
             taskId: selectedTask.id,
-            taskStatus: modalState.taskStatus ?? selectedTask.status,
+            taskIsTerminal: modalState.taskIsTerminal ?? selectedTask.isTerminal,
           })
         }
         title="Delete task"
@@ -1941,11 +1942,11 @@ export function ProjectWorkspaceClientShell({
           requestId,
         });
       },
-      openStatusUpdate: (taskId, taskStatus) => {
+      openStatusUpdate: (taskId, isTerminal) => {
         setModalState({
           kind: "status-update",
           taskId,
-          taskStatus: taskStatus ?? null,
+          taskIsTerminal: isTerminal ?? null,
         });
       },
       closeModal: () => {

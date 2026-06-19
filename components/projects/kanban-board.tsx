@@ -40,8 +40,25 @@ import { cn, formatDate, withSearchParams } from "@/lib/utils";
 
 const UNTAGGED_PHASE_VALUE = "__untagged__";
 
-type TaskStatus = "todo" | "doing" | "done";
 type TaskPriority = "low" | "medium" | "high";
+
+// A board column = a project's custom status.
+export type BoardStatus = {
+  id: string;
+  name: string;
+  color: string;
+  isTerminal: boolean;
+};
+
+// Synthetic column that catches tasks whose status was deleted/renamed out from
+// under them, so a card is never silently dropped from the board.
+const UNKNOWN_STATUS_ID = "__unknown_status__";
+const UNKNOWN_STATUS: BoardStatus = {
+  id: UNKNOWN_STATUS_ID,
+  name: "Uncategorized",
+  color: "#8a8f98",
+  isTerminal: false,
+};
 
 export type BoardTask = {
   id: string;
@@ -52,7 +69,10 @@ export type BoardTask = {
   labels?: { id: string; name: string; color: string }[];
   phase: string | null;
   hasStatusUpdate?: boolean;
-  status: TaskStatus;
+  statusId: string;
+  statusName: string;
+  statusColor: string;
+  isTerminal: boolean;
   priority: TaskPriority;
   dueDate: string | null;
   requestId: string | null;
@@ -65,12 +85,6 @@ export type BoardTask = {
   subtaskTotal?: number;
   subtaskDone?: number;
   commentCount?: number;
-};
-
-const statusLabel: Record<TaskStatus, string> = {
-  todo: "todo",
-  doing: "doing",
-  done: "done",
 };
 
 // "Entered this column on" date for the line above a card's title (dd/mm/yyyy).
@@ -87,6 +101,8 @@ type KanbanBoardProps = {
   // The branch the board is showing — sent with reorders so the server only
   // renumbers tasks on this branch (never another branch's cards).
   branchId?: string | null;
+  // The project's board columns, in left-to-right order.
+  statuses: BoardStatus[];
   tasks: BoardTask[];
   taskHrefBase?: string;
   readOnly?: boolean;
@@ -111,39 +127,47 @@ type KanbanBoardProps = {
   compactCards?: boolean;
 };
 
-type TaskColumns = Record<TaskStatus, BoardTask[]>;
-
-const columnOrder: TaskStatus[] = ["todo", "doing", "done"];
-
-const statusCopy: Record<TaskStatus, { label: string; tone: string }> = {
-  todo: {
-    label: "Todo",
-    tone: "bg-surface text-muted border-border",
-  },
-  doing: {
-    label: "Doing",
-    tone: "bg-transparent text-aether-blue border-aether-blue/40 column-doing-pulse",
-  },
-  done: {
-    label: "Done",
-    tone: "bg-emerald/10 text-emerald border-emerald/30",
-  },
-};
+// Columns keyed by status id. Order is driven by the `statuses` prop (and the
+// orderedColumns helper), not by object key order.
+type TaskColumns = Record<string, BoardTask[]>;
 
 // Priority ramp: low recedes (neutral), medium warns (amber), high alerts
-// (red). Green is reserved for "done" status, not priority.
+// (red). Green is reserved for terminal/done status, not priority.
 const priorityCopy: Record<TaskPriority, string> = {
   low: "border-border bg-surface text-muted",
   medium: "border-amber/40 bg-amber/10 text-amber",
   high: "border-danger/40 bg-danger/10 text-danger",
 };
 
-function groupTasks(tasks: BoardTask[]): TaskColumns {
-  return {
-    todo: tasks.filter((task) => task.status === "todo"),
-    doing: tasks.filter((task) => task.status === "doing"),
-    done: tasks.filter((task) => task.status === "done"),
-  };
+function groupTasks(
+  tasks: BoardTask[],
+  statuses: BoardStatus[],
+): TaskColumns {
+  const known = new Set(statuses.map((s) => s.id));
+  const columns: TaskColumns = {};
+  for (const status of statuses) columns[status.id] = [];
+  for (const task of tasks) {
+    const key = known.has(task.statusId) ? task.statusId : UNKNOWN_STATUS_ID;
+    (columns[key] ??= []).push(task);
+  }
+  return columns;
+}
+
+// The ordered list of columns to render: the project's statuses in order, plus a
+// trailing "Uncategorized" column only when some task has an unknown status id.
+function orderedColumns(
+  columns: TaskColumns,
+  statuses: BoardStatus[],
+): Array<{ status: BoardStatus; items: BoardTask[] }> {
+  const result = statuses.map((status) => ({
+    status,
+    items: columns[status.id] ?? [],
+  }));
+  const orphans = columns[UNKNOWN_STATUS_ID];
+  if (orphans && orphans.length) {
+    result.push({ status: UNKNOWN_STATUS, items: orphans });
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -647,7 +671,7 @@ function TaskCardSurface({
   // the tint so the column feels muted. Falls back to plain bg-surface when
   // there's no category color.
   const tintBase = task.categoryColor;
-  const tintPercent = task.status === "done" ? 5 : 10;
+  const tintPercent = task.isTerminal ? 5 : 10;
   const cardStyle: React.CSSProperties | undefined = tintBase
     ? {
         backgroundColor: `color-mix(in srgb, ${tintBase} ${tintPercent}%, var(--surface))`,
@@ -697,7 +721,7 @@ function TaskCardSurface({
             return (
               <p
                 className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.06em] text-muted"
-                title={`In ${statusLabel[task.status]} since ${entered.full}`}
+                title={`In ${task.statusName} since ${entered.full}`}
               >
                 <Clock className="size-3" />
                 Since {entered.short}
@@ -826,7 +850,7 @@ function SortableTaskCard({
 }: {
   hrefBase: string;
   onOpenTask?: ((taskId: string) => void) | null;
-  onOpenStatusUpdate?: ((taskId: string, taskStatus: TaskStatus) => void) | null;
+  onOpenStatusUpdate?: ((taskId: string, isTerminal: boolean) => void) | null;
   task: BoardTask;
 }) {
   const {
@@ -864,8 +888,8 @@ function SortableTaskCard({
         hrefBase={hrefBase}
         onOpen={onOpenTask ? () => onOpenTask(task.id) : null}
         onOpenStatusUpdate={
-          onOpenStatusUpdate && task.status === "done"
-            ? () => onOpenStatusUpdate(task.id, task.status)
+          onOpenStatusUpdate && task.isTerminal
+            ? () => onOpenStatusUpdate(task.id, task.isTerminal)
             : null
         }
         dragHandle={
@@ -885,17 +909,44 @@ function SortableTaskCard({
   );
 }
 
+// Column header badge tinted with the status's own swatch color (the same
+// PROJECT_SWATCHES palette the picker offers). Colors are validated on write, so
+// the inline color-mix values are safe.
+function ColumnHeader({
+  status,
+  count,
+}: {
+  status: BoardStatus;
+  count: number;
+}) {
+  return (
+    <div className="mb-3 flex items-center justify-between">
+      <span
+        className="rounded-sm border px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-[0.04em]"
+        style={{
+          borderColor: `color-mix(in srgb, ${status.color} 40%, transparent)`,
+          backgroundColor: `color-mix(in srgb, ${status.color} 14%, transparent)`,
+          color: status.color,
+        }}
+      >
+        {status.name}
+      </span>
+      <span className="font-mono text-[11px] text-muted">{count}</span>
+    </div>
+  );
+}
+
 function SortableTaskColumn({
   status,
   items,
   children,
 }: {
-  status: TaskStatus;
+  status: BoardStatus;
   items: BoardTask[];
   children: React.ReactNode;
 }) {
   const { isOver, setNodeRef } = useDroppable({
-    id: status,
+    id: status.id,
   });
 
   return (
@@ -906,17 +957,7 @@ function SortableTaskColumn({
         isOver && "border-border-strong bg-surface-strong",
       )}
     >
-      <div className="mb-3 flex items-center justify-between">
-        <span
-          className={cn(
-            "rounded-sm border px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-[0.04em]",
-            statusCopy[status].tone,
-          )}
-        >
-          {statusCopy[status].label}
-        </span>
-        <span className="font-mono text-[11px] text-muted">{items.length}</span>
-      </div>
+      <ColumnHeader status={status} count={items.length} />
       <SortableContext
         items={items.map((task) => task.id)}
         strategy={verticalListSortingStrategy}
@@ -939,7 +980,7 @@ function StaticTaskColumn({
   // its actual count rather than the number of cards rendered.
   count,
 }: {
-  status: TaskStatus;
+  status: BoardStatus;
   items: BoardTask[];
   children: React.ReactNode;
   scroll?: boolean;
@@ -947,17 +988,7 @@ function StaticTaskColumn({
 }) {
   return (
     <section className="rounded-md border border-border bg-surface/60 px-3 py-3">
-      <div className="mb-3 flex items-center justify-between">
-        <span
-          className={cn(
-            "rounded-sm border px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-[0.04em]",
-            statusCopy[status].tone,
-          )}
-        >
-          {statusCopy[status].label}
-        </span>
-        <span className="font-mono text-[11px] text-muted">{count ?? items.length}</span>
-      </div>
+      <ColumnHeader status={status} count={count ?? items.length} />
       <div
         className={cn(
           "space-y-3",
@@ -973,6 +1004,7 @@ function StaticTaskColumn({
 export function KanbanBoard({
   projectId,
   branchId,
+  statuses,
   tasks,
   taskHrefBase,
   readOnly = false,
@@ -985,7 +1017,9 @@ export function KanbanBoard({
   compactCards = false,
 }: KanbanBoardProps) {
   const workspaceUi = useOptionalProjectWorkspaceUi();
-  const [columns, setColumns] = useState<TaskColumns>(() => groupTasks(tasks));
+  const [columns, setColumns] = useState<TaskColumns>(() =>
+    groupTasks(tasks, statuses),
+  );
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [filters, setFilters] = useState<BoardFilterState>(EMPTY_FILTERS);
   const [expanded, setExpanded] = useState(false);
@@ -997,6 +1031,10 @@ export function KanbanBoard({
     }),
   );
   const hrefBase = taskHrefBase ?? `/projects/${projectId}`;
+  const statusById = useMemo(
+    () => new Map(statuses.map((s) => [s.id, s])),
+    [statuses],
+  );
   const filterOptions = useMemo(
     () => buildFilterOptions(tasks, allLabels),
     [tasks, allLabels],
@@ -1005,7 +1043,7 @@ export function KanbanBoard({
   const isFiltered = hasActiveFilters(filters);
 
   const flattenedTasks = useMemo(
-    () => columnOrder.flatMap((status) => columns[status]),
+    () => Object.values(columns).flat(),
     [columns],
   );
   const activeTask = activeTaskId ? findTaskById(flattenedTasks, activeTaskId) : null;
@@ -1023,11 +1061,12 @@ export function KanbanBoard({
         body: JSON.stringify({
           projectId,
           ...(branchId ? { branchId } : {}),
-          columns: {
-            todo: nextColumns.todo.map((task) => task.id),
-            doing: nextColumns.doing.map((task) => task.id),
-            done: nextColumns.done.map((task) => task.id),
-          },
+          // Only persist real columns (skip the synthetic "Uncategorized"
+          // orphan bucket — those tasks keep their existing status).
+          columns: statuses.map((status) => ({
+            statusId: status.id,
+            taskIds: (nextColumns[status.id] ?? []).map((task) => task.id),
+          })),
         }),
       });
       if (!response.ok) throw new Error("reorder failed");
@@ -1061,8 +1100,15 @@ export function KanbanBoard({
       return;
     }
 
-    const sourceStatus = activeTask.status;
-    const destinationStatus = overTask?.status ?? (overId as TaskStatus);
+    const sourceStatus = activeTask.statusId;
+    // The drop target is either another card (adopt its column) or a column's
+    // own droppable id (the status id).
+    const destinationStatus = overTask?.statusId ?? overId;
+    const destStatusMeta = statusById.get(destinationStatus);
+    // Ignore drops onto something that isn't one of this project's columns.
+    if (!destStatusMeta || !columns[sourceStatus]) {
+      return;
+    }
 
     const sourceItems = [...columns[sourceStatus]];
     const activeIndex = sourceItems.findIndex((task) => task.id === activeId);
@@ -1091,8 +1137,16 @@ export function KanbanBoard({
 
     sourceItems.splice(activeIndex, 1);
 
-    const destinationItems = [...columns[destinationStatus]];
-    const nextTask = { ...movingTask, status: destinationStatus };
+    const destinationItems = [...(columns[destinationStatus] ?? [])];
+    // Carry the destination column's denormalized status fields onto the card so
+    // the moved card renders with the new column's name/color/terminal state.
+    const nextTask: BoardTask = {
+      ...movingTask,
+      statusId: destStatusMeta.id,
+      statusName: destStatusMeta.name,
+      statusColor: destStatusMeta.color,
+      isTerminal: destStatusMeta.isTerminal,
+    };
     const insertIndex = overTask
       ? destinationItems.findIndex((task) => task.id === overTask.id)
       : destinationItems.length;
@@ -1115,43 +1169,43 @@ export function KanbanBoard({
 
   // Live source columns: the owner board reflects the optimistic drag state;
   // the read-only public board groups straight from the prop.
-  const sourceColumns = readOnly ? groupTasks(tasks) : columns;
+  const sourceColumns = readOnly ? groupTasks(tasks, statuses) : columns;
 
-  const matchedColumns: TaskColumns = {
-    todo: sourceColumns.todo.filter((task) =>
+  // Filter each column (keyed by status id), preserving the column structure.
+  const matchedColumns: TaskColumns = {};
+  for (const [statusId, items] of Object.entries(sourceColumns)) {
+    matchedColumns[statusId] = items.filter((task) =>
       taskMatchesFilters(task, filters, tokens),
-    ),
-    doing: sourceColumns.doing.filter((task) =>
-      taskMatchesFilters(task, filters, tokens),
-    ),
-    done: sourceColumns.done.filter((task) =>
-      taskMatchesFilters(task, filters, tokens),
-    ),
-  };
-  const resultCount =
-    matchedColumns.todo.length +
-    matchedColumns.doing.length +
-    matchedColumns.done.length;
+    );
+  }
+  const resultCount = Object.values(matchedColumns).reduce(
+    (sum, items) => sum + items.length,
+    0,
+  );
 
   // Preview cap: only when a previewLimit is set, nothing is filtered, and the
-  // user hasn't expanded. Cap EACH column to the top N (per column) so every
-  // status stays represented — a Todo-heavy project can't hide the Doing/Done
-  // columns. Column headers still show each column's true total (see below).
+  // user hasn't expanded. Cap EACH column to the top N so every status stays
+  // represented. Column headers still show each column's true total (see below).
   const previewing = previewLimit != null && !isFiltered && !expanded;
   let displayColumns = matchedColumns;
   let hiddenCount = 0;
   if (previewing && previewLimit != null) {
-    displayColumns = {
-      todo: matchedColumns.todo.slice(0, previewLimit),
-      doing: matchedColumns.doing.slice(0, previewLimit),
-      done: matchedColumns.done.slice(0, previewLimit),
-    };
-    hiddenCount = columnOrder.reduce(
-      (sum, status) =>
-        sum + (matchedColumns[status].length - displayColumns[status].length),
+    displayColumns = {};
+    for (const [statusId, items] of Object.entries(matchedColumns)) {
+      displayColumns[statusId] = items.slice(0, previewLimit);
+    }
+    hiddenCount = Object.entries(matchedColumns).reduce(
+      (sum, [statusId, items]) =>
+        sum + (items.length - (displayColumns[statusId]?.length ?? 0)),
       0,
     );
   }
+
+  // Shared column-track classes: ~3 columns visible, the rest scroll
+  // horizontally; each column is shrink-0 so flex never squeezes them.
+  const trackClass = "flex gap-4 overflow-x-auto pb-4 [scrollbar-gutter:stable]";
+  const columnWidthClass =
+    "shrink-0 basis-[85%] sm:basis-[clamp(17.5rem,calc((100%-2rem)/3),22.5rem)]";
 
   // Drag is only live on the full, owner-owned, unfiltered, non-preview board.
   const canDrag = !readOnly && !isFiltered && previewLimit == null;
@@ -1192,16 +1246,13 @@ export function KanbanBoard({
     return (
       <div>
         {filterBar}
-        <div className="grid gap-4 lg:grid-cols-3">
-          {columnOrder.map((status) => {
-            const items = displayColumns[status];
-
-            return (
+        <div className={trackClass}>
+          {orderedColumns(displayColumns, statuses).map(({ status, items }) => (
+            <div key={status.id} className={columnWidthClass}>
               <StaticTaskColumn
-                key={status}
                 status={status}
                 items={items}
-                count={matchedColumns[status].length}
+                count={(matchedColumns[status.id] ?? items).length}
                 scroll={scrollColumns}
               >
                 {items.length ? (
@@ -1234,8 +1285,8 @@ export function KanbanBoard({
                   </div>
                 )}
               </StaticTaskColumn>
-            );
-          })}
+            </div>
+          ))}
         </div>
         {showMore}
       </div>
@@ -1253,12 +1304,10 @@ export function KanbanBoard({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="grid gap-4 lg:grid-cols-3">
-          {columnOrder.map((status) => {
-            const items = columns[status];
-
-            return (
-              <SortableTaskColumn key={status} status={status} items={items}>
+        <div className={trackClass}>
+          {orderedColumns(columns, statuses).map(({ status, items }) => (
+            <div key={status.id} className={columnWidthClass}>
+              <SortableTaskColumn status={status} items={items}>
                 {items.length ? (
                   items.map((task) => (
                     <SortableTaskCard
@@ -1275,8 +1324,8 @@ export function KanbanBoard({
                   </div>
                 )}
               </SortableTaskColumn>
-            );
-          })}
+            </div>
+          ))}
         </div>
         <DragOverlay
           dropAnimation={{

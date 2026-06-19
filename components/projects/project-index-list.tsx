@@ -213,10 +213,10 @@ export function ProjectIndexList({ projects, view, initialSpace }: Props) {
 
             <div className="rounded-sm border border-border bg-background px-3 py-2">
               <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                Doing
+                Open
               </p>
               <p className="mt-1 font-mono text-base font-medium text-foreground">
-                {project.taskCounts.doing}
+                {project.taskCounts.open}
               </p>
             </div>
 

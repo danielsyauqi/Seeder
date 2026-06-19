@@ -13,7 +13,6 @@ import {
   diffChanges,
   formatActivityDate,
   priorityLabel,
-  taskStatusLabel,
 } from "@/lib/activity-diff";
 import { isAdminTier, type Viewer } from "@/lib/auth-server";
 import { formatTaskCode } from "@/lib/codes";
@@ -24,13 +23,13 @@ import {
   projectActivity,
   projects,
   tasks,
-  taskStatusValues,
 } from "@/lib/db/schema";
 import { normalizeRichTextInput } from "@/lib/rich-text";
 import {
   assertProjectCapability,
   assertTaskInProject,
   getNextTaskSortOrder,
+  getProjectInitialStatus,
   getProjectSlug,
   isUniqueConstraintError,
   nextTaskCodeNumber,
@@ -40,6 +39,7 @@ import {
   resolveCategory,
   resolveDefaultBranchId,
   resolveDueDate,
+  resolveStatusForWrite,
   userNameMap,
 } from "@/lib/services/_shared";
 
@@ -80,7 +80,12 @@ export const updateTaskInputSchema = z.object({
     "Task category id from the project (an id, not a category name).",
   ),
   phase: optionalText.describe("Free-text phase/milestone label."),
-  status: z.enum(taskStatusValues),
+  statusId: z
+    .string()
+    .min(1)
+    .describe(
+      "Status id from the project (an id, not a name; get it from list-task-statuses).",
+    ),
   priority: z.enum(priorityValues),
   dueDate: optionalText.describe(
     "Due date as an ISO-8601 date, e.g. 2026-06-04.",
@@ -111,7 +116,13 @@ export async function createTask(
   const slug = await getProjectSlug(input.projectId);
   const category = await resolveCategory(input.categoryId, input.projectId);
   const branchId = await resolveBranchId(input.branchId, input.projectId);
-  const sortOrder = await getNextTaskSortOrder(input.projectId, "todo", branchId);
+  // New tasks land in the project's initial column (was: hardcoded "todo").
+  const initial = await getProjectInitialStatus(input.projectId);
+  const sortOrder = await getNextTaskSortOrder(
+    input.projectId,
+    initial.statusId,
+    branchId,
+  );
   const dueDate = resolveDueDate(input.dueDate);
   // Only link a client request that belongs to this same project; drop a
   // stale/cross-project request id rather than persisting a foreign link.
@@ -156,7 +167,10 @@ export async function createTask(
           phase: input.phase ?? null,
           priority: input.priority,
           dueDate,
-          status: "todo",
+          statusId: initial.statusId,
+          statusName: initial.statusName,
+          statusColor: initial.statusColor,
+          isTerminal: initial.isTerminal,
           sortOrder,
           statusChangedAt: now,
           createdAt: now,
@@ -195,14 +209,20 @@ export async function updateTask(
   await assertProjectCapability(viewer, input.projectId, "task.write");
 
   const existingTask = await assertTaskInProject(input.taskId, input.projectId);
-  const statusChanged = existingTask.status !== input.status;
+  // Validate the target status belongs to this project; a bad id throws rather
+  // than silently moving the card to another column.
+  const resolvedStatus = await resolveStatusForWrite(
+    input.statusId,
+    input.projectId,
+  );
+  const statusChanged = existingTask.statusId !== resolvedStatus.statusId;
   // A status move re-homes the card to the bottom of the new column WITHIN its
   // own branch (sort order is scoped per branch). branchId is always set in
   // practice; fall back to Main only to satisfy the non-null contract.
   const branchId =
     existingTask.branchId ?? (await resolveDefaultBranchId(input.projectId));
   const nextSortOrder = statusChanged
-    ? await getNextTaskSortOrder(input.projectId, input.status, branchId)
+    ? await getNextTaskSortOrder(input.projectId, resolvedStatus.statusId, branchId)
     : existingTask.sortOrder;
   // Stamp the moment the task enters a new column; keep the prior stamp on edits
   // that don't move it (so the "in <status> since" label reflects the real move).
@@ -244,8 +264,8 @@ export async function updateTask(
     {
       field: "status",
       label: "Status",
-      from: taskStatusLabel(existingTask.status),
-      to: taskStatusLabel(input.status),
+      from: existingTask.statusName,
+      to: resolvedStatus.statusName,
     },
     {
       field: "priority",
@@ -285,7 +305,10 @@ export async function updateTask(
         categoryName: category.categoryName,
         categoryColor: category.categoryColor,
         phase: input.phase ?? null,
-        status: input.status,
+        statusId: resolvedStatus.statusId,
+        statusName: resolvedStatus.statusName,
+        statusColor: resolvedStatus.statusColor,
+        isTerminal: resolvedStatus.isTerminal,
         priority: input.priority,
         dueDate: nextDueDate,
         assigneeId,
@@ -301,11 +324,10 @@ export async function updateTask(
         projectId: input.projectId,
         entityType: "task",
         entityId: input.taskId,
-        action: existingTask.status === input.status ? "updated" : "moved",
-        label:
-          existingTask.status === input.status
-            ? "Updated task"
-            : `Moved task to ${input.status}`,
+        action: statusChanged ? "moved" : "updated",
+        label: statusChanged
+          ? `Moved task to ${resolvedStatus.statusName}`
+          : "Updated task",
         detail: input.title,
         changes,
         createdAt: now,
@@ -352,7 +374,12 @@ export async function deleteTask(
 export const updateTaskStatusInputSchema = z.object({
   taskId: z.string().min(1),
   projectId: z.string().min(1),
-  status: z.enum(taskStatusValues),
+  statusId: z
+    .string()
+    .min(1)
+    .describe(
+      "Status id to move the task to (an id, not a name; get it from list-task-statuses).",
+    ),
 });
 export type UpdateTaskStatusInput = z.infer<typeof updateTaskStatusInputSchema>;
 
@@ -374,7 +401,7 @@ export async function updateTaskStatus(
     description: existing.description ?? undefined,
     categoryId: existing.categoryId ?? undefined,
     phase: existing.phase ?? undefined,
-    status: input.status,
+    statusId: input.statusId,
     priority: existing.priority,
     dueDate: existing.dueDate ? existing.dueDate.toISOString() : undefined,
     assigneeId: existing.assigneeId ?? undefined,
@@ -443,7 +470,7 @@ export async function setTaskCategory(
         description: existing.description ?? undefined,
         categoryId, // new category, or undefined to clear
         phase: existing.phase ?? undefined,
-        status: existing.status,
+        statusId: existing.statusId,
         priority: existing.priority,
         dueDate: existing.dueDate ? existing.dueDate.toISOString() : undefined,
         assigneeId: existing.assigneeId ?? undefined,

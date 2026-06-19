@@ -508,7 +508,21 @@ export const tasks = sqliteTable(
     categoryName: text("category_name"),
     categoryColor: text("category_color"),
     phase: text("phase"),
-    status: text("status", { enum: taskStatusValues }).notNull().default("todo"),
+    // Per-project custom status. The fixed todo/doing/done enum was replaced by
+    // a FK into task_statuses (migration 0034). statusName/statusColor/isTerminal
+    // are denormalized off the status row — mirroring categoryName/categoryColor —
+    // so every read surface (board, Today, dashboard, CSV, MCP, activity) reads
+    // them directly instead of joining, and every former `status === "done"`
+    // check re-keys onto isTerminal. The status service resyncs these whenever a
+    // status is renamed / recolored / retyped.
+    statusId: text("status_id")
+      .notNull()
+      .references(() => taskStatuses.id),
+    statusName: text("status_name").notNull(),
+    statusColor: text("status_color").notNull(),
+    isTerminal: integer("is_terminal", { mode: "boolean" })
+      .notNull()
+      .default(false),
     priority: text("priority", { enum: priorityValues })
       .notNull()
       .default("medium"),
@@ -530,11 +544,11 @@ export const tasks = sqliteTable(
     index("tasks_branch_idx").on(table.branchId),
     index("tasks_owner_idx").on(table.ownerId),
     index("tasks_assignee_idx").on(table.assigneeId),
-    index("tasks_status_sort_idx").on(table.status, table.sortOrder),
+    index("tasks_status_sort_idx").on(table.statusId, table.sortOrder),
     // Board reads filter by branch then group by status and order by sortOrder.
     index("tasks_branch_status_sort_idx").on(
       table.branchId,
-      table.status,
+      table.statusId,
       table.sortOrder,
     ),
     index("tasks_status_changed_at_idx").on(table.statusChangedAt),
@@ -594,6 +608,50 @@ export const taskLabels = sqliteTable(
   (table) => [
     uniqueIndex("task_labels_project_name_idx").on(table.projectId, table.name),
     index("task_labels_project_idx").on(table.projectId),
+  ],
+);
+
+// Per-project board columns (Jira-style custom statuses). Replaces the fixed
+// todo/doing/done enum on tasks. Modeled on task_categories: per-project name +
+// color, plus ordering and two flags that carry the semantics the codebase used
+// to hardcode against the "done" literal:
+//   - isInitial:  the column a newly-created task lands in (was: default "todo")
+//   - isTerminal: a "done"-equivalent column (drives completion %, overdue
+//                 suppression, the client status-update publish gate, etc.)
+// Each project keeps >= 1 status, exactly >= 1 initial, and >= 1 terminal — the
+// service enforces these invariants. tasks.statusId FK has no ON DELETE cascade
+// (deleting a status with tasks is blocked at the service layer; the DB FK adds
+// a NO ACTION backstop).
+export const taskStatuses = sqliteTable(
+  "task_statuses",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isTerminal: integer("is_terminal", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    isInitial: integer("is_initial", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    uniqueIndex("task_statuses_project_name_idx").on(
+      table.projectId,
+      table.name,
+    ),
+    index("task_statuses_project_idx").on(table.projectId),
+    index("task_statuses_project_sort_idx").on(table.projectId, table.sortOrder),
   ],
 );
 
@@ -986,6 +1044,7 @@ export type TaskComment = typeof taskComments.$inferSelect;
 export type RequestComment = typeof requestComments.$inferSelect;
 export type NotificationRead = typeof notificationReads.$inferSelect;
 export type TaskCategory = typeof taskCategories.$inferSelect;
+export type TaskStatusRow = typeof taskStatuses.$inferSelect;
 export type TaskLabel = typeof taskLabels.$inferSelect;
 export type TaskTaskLabel = typeof taskTaskLabels.$inferSelect;
 export type SystemSettings = typeof systemSettings.$inferSelect;

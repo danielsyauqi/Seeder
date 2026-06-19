@@ -35,7 +35,9 @@ export type PlannerItem = {
   projectColor: string | null;
   projectCode: string | null;
   linkedTaskId: string | null;
-  linkedStatus: "todo" | "doing" | "done" | null;
+  // The linked board task's custom status name + color (null when unlinked).
+  linkedStatus: string | null;
+  linkedStatusColor: string | null;
   boardHref: string | null;
   dateKey: string;
 };

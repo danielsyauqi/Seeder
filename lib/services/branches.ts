@@ -354,7 +354,7 @@ export async function moveTaskToBranch(
   // Re-home the card to the bottom of its column on the target branch.
   const sortOrder = await getNextTaskSortOrder(
     input.projectId,
-    task.status,
+    task.statusId,
     target.id,
   );
 

@@ -159,8 +159,7 @@ export type AdminProjectSummary = {
   ownerName: string | null;
   ownerEmail: string | null;
   memberCount: number;
-  tasksTodo: number;
-  tasksDoing: number;
+  tasksOpen: number;
   tasksDone: number;
   totalTasks: number;
 };
@@ -194,11 +193,11 @@ export async function listAllProjects(): Promise<AdminProjectSummary[]> {
     db
       .select({
         projectId: tasks.projectId,
-        status: tasks.status,
+        isTerminal: tasks.isTerminal,
         c: count(tasks.id),
       })
       .from(tasks)
-      .groupBy(tasks.projectId, tasks.status),
+      .groupBy(tasks.projectId, tasks.isTerminal),
     db
       .select({
         projectId: projectMembers.projectId,
@@ -209,22 +208,23 @@ export async function listAllProjects(): Promise<AdminProjectSummary[]> {
   ]);
 
   const memberById = new Map(memberCounts.map((row) => [row.projectId, row.c]));
-  const taskById = new Map<string, { todo: number; doing: number; done: number }>();
+  // Custom statuses collapse to open (non-terminal) vs done (terminal).
+  const taskById = new Map<string, { open: number; done: number }>();
   for (const row of taskCounts) {
-    const bucket = taskById.get(row.projectId) ?? { todo: 0, doing: 0, done: 0 };
-    bucket[row.status] = row.c;
+    const bucket = taskById.get(row.projectId) ?? { open: 0, done: 0 };
+    if (row.isTerminal) bucket.done = row.c;
+    else bucket.open = row.c;
     taskById.set(row.projectId, bucket);
   }
 
   return rows.map((p) => {
-    const t = taskById.get(p.id) ?? { todo: 0, doing: 0, done: 0 };
+    const t = taskById.get(p.id) ?? { open: 0, done: 0 };
     return {
       ...p,
       memberCount: memberById.get(p.id) ?? 0,
-      tasksTodo: t.todo,
-      tasksDoing: t.doing,
+      tasksOpen: t.open,
       tasksDone: t.done,
-      totalTasks: t.todo + t.doing + t.done,
+      totalTasks: t.open + t.done,
     };
   });
 }
@@ -403,7 +403,8 @@ export async function getDailyOpsForDate(date: Date) {
       projectName: projects.name,
       projectColor: projects.color,
       linkedTaskId: dailyTasks.linkedTaskId,
-      linkedStatus: tasks.status,
+      linkedStatus: tasks.statusName,
+      linkedStatusColor: tasks.statusColor,
       sortOrder: dailyTasks.sortOrder,
       batchId: dailyTasks.batchId,
     })

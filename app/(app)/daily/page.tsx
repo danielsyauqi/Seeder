@@ -67,6 +67,7 @@ export default async function DailyPage({ searchParams }: DailyPageProps) {
     projectCode: row.projectCode,
     linkedTaskId: row.linkedTaskId,
     linkedStatus: row.linkedStatus,
+    linkedStatusColor: row.linkedStatusColor,
     boardHref: row.boardHref,
     dateKey: row.dateKey,
   }));

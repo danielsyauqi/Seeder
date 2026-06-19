@@ -10,6 +10,7 @@ import {
 
 import { CategoryManager } from "@/components/projects/category-manager";
 import { LabelManager } from "@/components/projects/label-manager";
+import { StatusManager } from "@/components/projects/status-manager";
 import { KanbanBoard } from "@/components/projects/kanban-board";
 import { ProjectColorPicker } from "@/components/projects/project-color-picker";
 import { ProjectNotesPanel } from "@/components/projects/project-notes-panel";
@@ -58,9 +59,8 @@ function formatDateLabel(value: Date | null) {
 
 function countTasksByStatus(workspace: ProjectWorkspace) {
   return {
-    todo: workspace.tasks.filter((task) => task.status === "todo").length,
-    doing: workspace.tasks.filter((task) => task.status === "doing").length,
-    done: workspace.tasks.filter((task) => task.status === "done").length,
+    open: workspace.tasks.filter((task) => !task.isTerminal).length,
+    done: workspace.tasks.filter((task) => task.isTerminal).length,
   };
 }
 
@@ -136,14 +136,9 @@ export function ProjectMetricsStrip({
       tone: "text-accent-strong",
     },
     {
-      label: "Todo",
-      value: taskCounts.todo,
+      label: "Open",
+      value: taskCounts.open,
       tone: "text-foreground",
-    },
-    {
-      label: "Doing",
-      value: taskCounts.doing,
-      tone: "text-accent-strong",
     },
     {
       label: "Done",
@@ -153,7 +148,7 @@ export function ProjectMetricsStrip({
   ];
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-3">
       {metrics.map((metric) => (
         <SectionFrame key={metric.label} className="p-4 sm:p-4">
           <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
@@ -185,7 +180,7 @@ export function ProjectBoardSurface({
   const boardKey = workspace.tasks
     .map(
       (task) =>
-        `${task.id}:${task.status}:${task.sortOrder}:${task.updatedAt.getTime()}:${publishedTaskIds.has(task.id)}`,
+        `${task.id}:${task.statusId}:${task.sortOrder}:${task.updatedAt.getTime()}:${publishedTaskIds.has(task.id)}`,
     )
     .join("|");
   const boardPath = `/projects/${workspace.project.id}/board`;
@@ -221,6 +216,7 @@ export function ProjectBoardSurface({
         key={boardKey}
         projectId={workspace.project.id}
         branchId={workspace.currentBranchId}
+        statuses={workspace.statuses}
         taskHrefBase={currentPath}
         showFilters={!preview}
         previewLimit={preview ? 5 : undefined}
@@ -499,6 +495,28 @@ export function ProjectSettingsSurface({
           projectId={workspace.project.id}
           currentColor={workspace.project.color}
           returnTo={currentPath}
+        />
+      </SettingsSection>
+
+      <SettingsSection
+        eyebrow="Board"
+        title="Task statuses"
+        description="The columns on your board. Add custom statuses, recolor them, reorder left-to-right, and mark which one new tasks start in and which counts as Done. Deleting requires zero tasks in the column."
+        keywords="status statuses column columns board kanban workflow stage in review done terminal"
+      >
+        <StatusManager
+          projectId={workspace.project.id}
+          statuses={workspace.statuses.map((status) => ({
+            id: status.id,
+            name: status.name,
+            color: status.color,
+            sortOrder: status.sortOrder,
+            isTerminal: status.isTerminal,
+            isInitial: status.isInitial,
+            taskCount: workspace.tasks.filter(
+              (task) => task.statusId === status.id,
+            ).length,
+          }))}
         />
       </SettingsSection>
 

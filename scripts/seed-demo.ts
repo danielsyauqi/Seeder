@@ -286,15 +286,72 @@ type TaskOpts = {
   phase?: string; due?: number | null; desc?: string | null;
   created?: number; updated?: number; sort?: number; branch?: string;
 };
+// Per-project board columns. Aurora gets an extra "In Review" column to show off
+// custom statuses; Atlas and Pulse use the default three. Mirrors how the 0034
+// migration seeds Todo/Doing/Done for real projects.
+type StatusCol = {
+  key: string;
+  name: string;
+  color: string;
+  initial?: boolean;
+  terminal?: boolean;
+};
+const DEFAULT_COLS: StatusCol[] = [
+  { key: "todo", name: "Todo", color: "#8a8f98", initial: true },
+  { key: "doing", name: "Doing", color: "#5e6ad2" },
+  { key: "done", name: "Done", color: "#27a644", terminal: true },
+];
+const STATUS_COLS: Record<string, StatusCol[]> = {
+  [AURORA]: [
+    { key: "todo", name: "Todo", color: "#8a8f98", initial: true },
+    { key: "doing", name: "Doing", color: "#5e6ad2" },
+    { key: "review", name: "In Review", color: "#d99e25" },
+    { key: "done", name: "Done", color: "#27a644", terminal: true },
+  ],
+  [ATLAS]: DEFAULT_COLS,
+  [PULSE]: DEFAULT_COLS,
+};
+const STATUS_ID: Record<string, Record<string, string>> = {};
+const STATUS_META: Record<string, StatusCol> = {};
+const statusRows = Object.entries(STATUS_COLS).flatMap(([proj, cols]) => {
+  STATUS_ID[proj] = {};
+  return cols.map((c, i) => {
+    const id = `st-${proj}-${c.key}`;
+    STATUS_ID[proj][c.key] = id;
+    STATUS_META[id] = c;
+    return {
+      id,
+      project_id: proj,
+      name: c.name,
+      color: c.color,
+      sort_order: i,
+      is_terminal: c.terminal ? 1 : 0,
+      is_initial: c.initial ? 1 : 0,
+      created_at: ms(-110),
+      updated_at: ms(-110),
+    };
+  });
+});
+insert(
+  "task_statuses",
+  ["id", "project_id", "name", "color", "sort_order", "is_terminal", "is_initial", "created_at", "updated_at"],
+  statusRows,
+);
+
 function task(o: TaskOpts) {
   const c = o.cat ? CAT[o.cat] : undefined;
+  const statusId = STATUS_ID[o.project]?.[o.status] ?? STATUS_ID[o.project]?.todo;
+  const meta = statusId ? STATUS_META[statusId] : undefined;
   return {
     id: o.id, owner_id: OWNER, project_id: o.project,
     branch_id: o.branch ?? MAIN[o.project] ?? null, request_id: null,
     assignee_id: o.assignee, title: o.title, description: o.desc ?? null,
     code_number: o.code, category_id: o.cat ?? null,
     category_name: c?.name ?? null, category_color: c?.color ?? null,
-    phase: o.phase ?? null, status: o.status, priority: o.priority,
+    phase: o.phase ?? null,
+    status_id: statusId, status_name: meta?.name ?? "Todo",
+    status_color: meta?.color ?? "#8a8f98", is_terminal: meta?.terminal ? 1 : 0,
+    priority: o.priority,
     due_date: o.due ?? null, sort_order: o.sort ?? 0,
     created_at: o.created ?? ms(-40), updated_at: o.updated ?? ms(-3),
   };
@@ -308,7 +365,7 @@ const tasks = [
   task({ id: "demo-task-b4", project: ATLAS, code: 4, title: "Query result caching", status: "doing", priority: "low", assignee: A, cat: "cat-b-data", phase: "Build", created: ms(-12), updated: ms(-4), sort: 4 }),
   // todo
   task({ id: "demo-task-a2", project: AURORA, code: 2, title: "Push notification service", status: "todo", priority: "medium", assignee: L, cat: "cat-a-back", phase: "Build", due: day(5), created: ms(-20), updated: ms(-5), sort: 0, desc: simple("Stand up the push service with topic subscriptions and quiet hours.") }),
-  task({ id: "demo-task-a6", project: AURORA, code: 6, title: "Crash reporting integration", status: "todo", priority: "high", assignee: L, cat: "cat-a-front", phase: "Build", due: day(0), created: ms(-9), updated: ms(-1), sort: 1 }),
+  task({ id: "demo-task-a6", project: AURORA, code: 6, title: "Crash reporting integration", status: "review", priority: "high", assignee: L, cat: "cat-a-front", phase: "Build", due: day(0), created: ms(-9), updated: ms(-1), sort: 0 }),
   task({ id: "demo-task-b2", project: ATLAS, code: 2, title: "Dashboard widgets", status: "todo", priority: "medium", assignee: L, cat: "cat-b-data", phase: "Design", due: day(8), created: ms(-15), updated: ms(-6), sort: 2 }),
   task({ id: "demo-task-c3", project: PULSE, code: 3, title: "Docs site scaffolding", status: "todo", priority: "low", assignee: T, cat: "cat-c-comp", phase: "Discovery", created: ms(-8), updated: ms(-6), sort: 3 }),
   // done (updated_at spread over weeks for the dashboard charts/heatmap)
@@ -326,7 +383,7 @@ const tasks = [
 ];
 insert(
   "tasks",
-  ["id", "owner_id", "project_id", "branch_id", "request_id", "assignee_id", "title", "description", "code_number", "category_id", "category_name", "category_color", "phase", "status", "priority", "due_date", "sort_order", "created_at", "updated_at"],
+  ["id", "owner_id", "project_id", "branch_id", "request_id", "assignee_id", "title", "description", "code_number", "category_id", "category_name", "category_color", "phase", "status_id", "status_name", "status_color", "is_terminal", "priority", "due_date", "sort_order", "created_at", "updated_at"],
   tasks,
 );
 

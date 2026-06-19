@@ -52,9 +52,8 @@ export default async function ClientProjectBoardPage({
   const { showBoard, showDescription, showCommits } = publicBoard.project;
 
   const taskCounts = {
-    todo: publicBoard.tasks.filter((task) => task.status === "todo").length,
-    doing: publicBoard.tasks.filter((task) => task.status === "doing").length,
-    done: publicBoard.tasks.filter((task) => task.status === "done").length,
+    open: publicBoard.tasks.filter((task) => !task.isTerminal).length,
+    done: publicBoard.tasks.filter((task) => task.isTerminal).length,
   };
   // Echo the project's set color on the public hero — a left-edge accent plus a
   // soft wash — instead of the neutral grey panel. Matches the projects list.
@@ -117,18 +116,18 @@ export default async function ClientProjectBoardPage({
                 <>
                   <div>
                     <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                      Todo
+                      Open
                     </p>
                     <p className="mt-1 font-mono text-base font-medium text-foreground">
-                      {taskCounts.todo}
+                      {taskCounts.open}
                     </p>
                   </div>
                   <div>
                     <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
-                      Doing
+                      Done
                     </p>
                     <p className="mt-1 font-mono text-base font-medium text-foreground">
-                      {taskCounts.doing}
+                      {taskCounts.done}
                     </p>
                   </div>
                 </>
@@ -164,6 +163,7 @@ export default async function ClientProjectBoardPage({
             <ClientBoardTasks
               projectId={publicBoard.project.id}
               allowTaskDetail={showDescription}
+              statuses={publicBoard.statuses}
               tasks={publicBoard.tasks.map((task) => ({
                 ...task,
                 dueDate: task.dueDate ? task.dueDate.toISOString() : null,

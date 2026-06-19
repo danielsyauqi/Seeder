@@ -38,7 +38,9 @@ type DailyOpsItem = {
   projectName: string | null;
   projectColor: string | null;
   linkedTaskId: string | null;
-  linkedStatus: "todo" | "doing" | "done" | null;
+  // The linked board task's custom status name + color (null when unlinked).
+  linkedStatus: string | null;
+  linkedStatusColor: string | null;
   batchId: string | null;
 };
 
@@ -111,7 +113,19 @@ function ItemCard({
         {item.linkedTaskId ? (
           <span className="inline-flex items-center gap-1 rounded-sm border border-border bg-surface px-1.5 py-0.5">
             <Kanban className="size-3.5" />
-            board: {item.linkedStatus ?? "?"}
+            board:{" "}
+            {item.linkedStatus ? (
+              <span className="inline-flex items-center gap-1">
+                <span
+                  aria-hidden
+                  className="inline-block size-2 rounded-full"
+                  style={{ backgroundColor: item.linkedStatusColor ?? "#8a8f98" }}
+                />
+                {item.linkedStatus}
+              </span>
+            ) : (
+              "?"
+            )}
           </span>
         ) : null}
         {assignedByAdmin && item.createdByName ? (

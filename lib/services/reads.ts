@@ -61,7 +61,10 @@ export type TaskSummary = {
   id: string;
   code: string | null;
   title: string;
-  status: TaskStatus;
+  statusId: string;
+  status: string; // status name (the project's custom column label)
+  statusColor: string;
+  isTerminal: boolean;
   priority: Priority;
   projectId: string;
   branchId: string | null;
@@ -210,7 +213,7 @@ export async function listTasks(
   viewer: Viewer,
   filter?: {
     projectId?: string;
-    status?: TaskStatus;
+    statusId?: string;
     assignedToMe?: boolean;
     branchId?: string;
   },
@@ -230,8 +233,8 @@ export async function listTasks(
     .select()
     .from(tasks)
     .where(inArray(tasks.projectId, scopeIds));
-  if (filter?.status) {
-    rows = rows.filter((t) => t.status === filter.status);
+  if (filter?.statusId) {
+    rows = rows.filter((t) => t.statusId === filter.statusId);
   }
   if (filter?.branchId) {
     rows = rows.filter((t) => t.branchId === filter.branchId);
@@ -245,7 +248,10 @@ export async function listTasks(
     id: t.id,
     code: formatTaskCode(slugs.get(t.projectId) ?? null, t.codeNumber),
     title: t.title,
-    status: t.status,
+    statusId: t.statusId,
+    status: t.statusName,
+    statusColor: t.statusColor,
+    isTerminal: t.isTerminal,
     priority: t.priority,
     projectId: t.projectId,
     branchId: t.branchId,
@@ -283,7 +289,10 @@ export async function readTask(
     id: task.id,
     code: formatTaskCode(slugs.get(input.projectId) ?? null, task.codeNumber),
     title: task.title,
-    status: task.status,
+    statusId: task.statusId,
+    status: task.statusName,
+    statusColor: task.statusColor,
+    isTerminal: task.isTerminal,
     priority: task.priority,
     projectId: task.projectId,
     branchId: task.branchId,

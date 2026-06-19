@@ -121,7 +121,7 @@ export default async function ProjectsPage({
     (project) =>
       project.isOverdue ||
       project.requestCounts.inbox > 0 ||
-      project.taskCounts.doing > 0,
+      project.taskCounts.open > 0,
   ).length;
 
   return (
@@ -185,23 +185,14 @@ export default async function ProjectsPage({
           </div>
         </SectionFrame>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <StatCard
-            label="Todo"
-            value={summary.tasksTodo.toString()}
+            label="Open"
+            value={summary.tasksOpen.toString()}
             detail={
               view === "archived"
-                ? "Tasks left untouched in archived work."
-                : "Tasks waiting to start."
-            }
-          />
-          <StatCard
-            label="Doing"
-            value={summary.tasksInProgress.toString()}
-            detail={
-              view === "archived"
-                ? "Tasks still marked as in progress."
-                : "Tasks actively being worked."
+                ? "Open tasks left in archived work."
+                : "Tasks still in an open status."
             }
           />
           <StatCard

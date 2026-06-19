@@ -6,7 +6,10 @@ import {
   ClientTaskModal,
   type ClientTask,
 } from "@/components/projects/client-task-modal";
-import { KanbanBoard } from "@/components/projects/kanban-board";
+import {
+  KanbanBoard,
+  type BoardStatus,
+} from "@/components/projects/kanban-board";
 
 /**
  * Public client board: read-only kanban where clicking a card opens a read-only
@@ -16,12 +19,14 @@ import { KanbanBoard } from "@/components/projects/kanban-board";
  */
 export function ClientBoardTasks({
   projectId,
+  statuses,
   tasks,
   // When false (owner hid full task descriptions), cards are not clickable and
   // no detail modal opens — clicking a card returns nothing.
   allowTaskDetail = true,
 }: {
   projectId: string;
+  statuses: BoardStatus[];
   tasks: ClientTask[];
   allowTaskDetail?: boolean;
 }) {
@@ -31,6 +36,7 @@ export function ClientBoardTasks({
     <>
       <KanbanBoard
         projectId={projectId}
+        statuses={statuses}
         readOnly
         showFilters
         scrollColumns

@@ -57,8 +57,10 @@ export async function publishStatusUpdate(
   await assertProjectCapability(viewer, input.projectId, "status.publish");
   const task = await assertTaskInProject(input.taskId, input.projectId);
 
-  if (task.status !== "done") {
-    throw new Error("Only completed tasks can be published as client updates.");
+  if (!task.isTerminal) {
+    throw new Error(
+      "Only tasks in a Done (terminal) status can be published as client updates.",
+    );
   }
 
   await db

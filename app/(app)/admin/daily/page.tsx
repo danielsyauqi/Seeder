@@ -45,6 +45,7 @@ export default async function AdminDailyPage({
     projectColor: row.projectColor,
     linkedTaskId: row.linkedTaskId,
     linkedStatus: row.linkedStatus,
+    linkedStatusColor: row.linkedStatusColor,
     batchId: row.batchId,
   }));
 

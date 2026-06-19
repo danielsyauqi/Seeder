@@ -153,7 +153,19 @@ function CardSurface({
             title="Linked to Execution Board"
           >
             <Kanban className="size-3.5" />
-            board: {item.linkedStatus ?? "?"}
+            board:{" "}
+            {item.linkedStatus ? (
+              <span className="inline-flex items-center gap-1">
+                <span
+                  aria-hidden
+                  className="inline-block size-2 rounded-full"
+                  style={{ backgroundColor: item.linkedStatusColor ?? "#8a8f98" }}
+                />
+                {item.linkedStatus}
+              </span>
+            ) : (
+              "?"
+            )}
           </a>
         ) : null}
       </div>

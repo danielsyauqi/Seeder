@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
 
-import { and, desc, eq, inArray, isNull, max } from "drizzle-orm";
+import { and, desc, eq, isNull, max } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -11,10 +11,8 @@ import { z } from "zod";
 import { logProjectActivity } from "@/lib/activity";
 import {
   diffChanges,
-  formatActivityDate,
   priorityLabel,
   requestStatusLabel,
-  taskStatusLabel,
 } from "@/lib/activity-diff";
 import {
   isAdminTier,
@@ -40,6 +38,12 @@ import {
   deleteTaskCategory as deleteTaskCategoryService,
   updateTaskCategory as updateTaskCategoryService,
 } from "@/lib/services/categories";
+import {
+  createTaskStatus as createTaskStatusService,
+  deleteTaskStatus as deleteTaskStatusService,
+  reorderTaskStatuses as reorderTaskStatusesService,
+  updateTaskStatusDef as updateTaskStatusDefService,
+} from "@/lib/services/statuses";
 import {
   createRequestComment as createRequestCommentService,
   createTaskComment as createTaskCommentService,
@@ -83,6 +87,7 @@ import {
 import { moveProjectToSpace as moveProjectToSpaceService } from "@/lib/services/spaces";
 import {
   assertProjectCapability,
+  getProjectInitialStatus,
   resolveDefaultBranchId,
 } from "@/lib/services/_shared";
 import { isValidProjectColor } from "@/lib/swatches";
@@ -216,31 +221,6 @@ const requestUpdateSchema = z.object({
   returnTo: optionalText,
 });
 
-const taskCreateSchema = z.object({
-  projectId: z.string().min(1),
-  title: z.string().trim().min(1).max(140),
-  description: optionalText,
-  categoryId: optionalText,
-  phase: optionalText,
-  priority: z.enum(priorityValues).default("medium"),
-  dueDate: optionalText,
-  requestId: optionalText,
-  returnTo: optionalText,
-});
-
-const taskUpdateSchema = z.object({
-  taskId: z.string().min(1),
-  projectId: z.string().min(1),
-  title: z.string().trim().min(1).max(140),
-  description: optionalText,
-  categoryId: optionalText,
-  phase: optionalText,
-  status: z.enum(taskStatusValues),
-  priority: z.enum(priorityValues),
-  dueDate: optionalText,
-  returnTo: optionalText,
-});
-
 const convertRequestSchema = z.object({
   requestId: z.string().min(1),
   projectId: z.string().min(1),
@@ -314,44 +294,6 @@ const taskStatusUpdateDeleteSchema = z.object({
   returnTo: optionalText,
 });
 
-function parseDate(value: string | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed;
-}
-
-async function resolveCategoryById(
-  categoryId: string | undefined,
-  projectId: string,
-) {
-  if (!categoryId) {
-    return { categoryId: null, categoryName: null, categoryColor: null };
-  }
-  const db = getDb();
-  const [row] = await db
-    .select({
-      id: taskCategories.id,
-      name: taskCategories.name,
-      color: taskCategories.color,
-      projectId: taskCategories.projectId,
-    })
-    .from(taskCategories)
-    .where(eq(taskCategories.id, categoryId))
-    .limit(1);
-  if (!row || row.projectId !== projectId) {
-    return { categoryId: null, categoryName: null, categoryColor: null };
-  }
-  return { categoryId: row.id, categoryName: row.name, categoryColor: row.color };
-}
-
 async function nextTaskCodeNumber(projectId: string): Promise<number> {
   const db = getDb();
   const [row] = await db
@@ -405,7 +347,7 @@ async function loadProjectTask(taskId: string, projectId: string) {
 
 async function getNextTaskSortOrder(
   projectId: string,
-  status: (typeof taskStatusValues)[number],
+  statusId: string,
   branchId: string,
 ) {
   const db = getDb();
@@ -418,7 +360,7 @@ async function getNextTaskSortOrder(
       and(
         eq(tasks.projectId, projectId),
         eq(tasks.branchId, branchId),
-        eq(tasks.status, status),
+        eq(tasks.statusId, statusId),
       ),
     )
     .orderBy(desc(tasks.sortOrder))
@@ -1114,12 +1056,14 @@ export async function convertRequestToTaskAction(formData: FormData) {
   const now = new Date();
 
   if (!existingTask) {
-    // The task lives on the same branch as the request it came from.
+    // The task lives on the same branch as the request it came from, in the
+    // project's initial board column.
     const branchId =
       request.branchId ?? (await resolveDefaultBranchId(payload.projectId));
+    const initial = await getProjectInitialStatus(payload.projectId);
     const sortOrder = await getNextTaskSortOrder(
       payload.projectId,
-      "todo",
+      initial.statusId,
       branchId,
     );
     const codeNumber = await nextTaskCodeNumber(payload.projectId);
@@ -1138,7 +1082,10 @@ export async function convertRequestToTaskAction(formData: FormData) {
       description: request.description ?? null,
       codeNumber,
       priority: request.priority,
-      status: "todo",
+      statusId: initial.statusId,
+      statusName: initial.statusName,
+      statusColor: initial.statusColor,
+      isTerminal: initial.isTerminal,
       sortOrder,
       statusChangedAt: now,
       createdAt: now,
@@ -1179,193 +1126,6 @@ export async function convertRequestToTaskAction(formData: FormData) {
     clientBoard: true,
   });
   redirect(withFlash(destination, "request-converted"));
-}
-
-export async function createTaskAction(formData: FormData) {
-  const viewer = await requireViewer();
-  const payload = taskCreateSchema.parse(toPayload(formData));
-  const db = getDb();
-  const now = new Date();
-
-  const project = await assertProjectTaskAccess(viewer, payload.projectId);
-
-  const branchId = await resolveDefaultBranchId(payload.projectId);
-  const sortOrder = await getNextTaskSortOrder(
-    payload.projectId,
-    "todo",
-    branchId,
-  );
-  const taskId = crypto.randomUUID();
-  const codeNumber = await nextTaskCodeNumber(payload.projectId);
-  const code = formatTaskCode(project.slug, codeNumber);
-  const category = await resolveCategoryById(payload.categoryId, payload.projectId);
-  // Only link a client request that belongs to this same project; drop a
-  // stale/cross-project request id rather than persisting a foreign link.
-  let requestId: string | null = payload.requestId ?? null;
-  if (requestId) {
-    const [linkedRequest] = await db
-      .select({ id: clientRequests.id })
-      .from(clientRequests)
-      .where(
-        and(
-          eq(clientRequests.id, requestId),
-          eq(clientRequests.projectId, payload.projectId),
-        ),
-      )
-      .limit(1);
-    if (!linkedRequest) requestId = null;
-  }
-
-  await db.insert(tasks).values({
-    id: taskId,
-    ownerId: viewer.id,
-    projectId: payload.projectId,
-    branchId,
-    requestId,
-    title: payload.title,
-    description: payload.description ?? null,
-    codeNumber,
-    categoryId: category.categoryId,
-    categoryName: category.categoryName,
-    categoryColor: category.categoryColor,
-    phase: payload.phase ?? null,
-    priority: payload.priority,
-    dueDate: parseDate(payload.dueDate),
-    status: "todo",
-    sortOrder,
-    statusChangedAt: now,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  await touchProject(payload.projectId, now);
-  await logProjectActivity(db, {
-    ownerId: viewer.id,
-    projectId: payload.projectId,
-    entityType: "task",
-    entityId: taskId,
-    action: "created",
-    label: "Created task",
-    detail: code ? `${code} · ${payload.title}` : payload.title,
-    createdAt: now,
-  });
-
-  const destination = safeReturnPath(
-    payload.returnTo,
-    `/projects/${payload.projectId}`,
-  );
-
-  revalidateProjectViews(payload.projectId, {
-    projects: true,
-    today: true,
-    overview: true,
-    board: true,
-    clientBoard: true,
-  });
-  redirect(destination);
-}
-
-export async function updateTaskAction(formData: FormData) {
-  const viewer = await requireViewer();
-  const payload = taskUpdateSchema.parse(toPayload(formData));
-  const db = getDb();
-
-  await assertProjectTaskAccess(viewer, payload.projectId);
-
-  const existingTask = await loadProjectTask(payload.taskId, payload.projectId);
-
-  const branchId =
-    existingTask.branchId ?? (await resolveDefaultBranchId(payload.projectId));
-  const nextSortOrder =
-    existingTask.status === payload.status
-      ? existingTask.sortOrder
-      : await getNextTaskSortOrder(payload.projectId, payload.status, branchId);
-  const now = new Date();
-
-  const category = await resolveCategoryById(payload.categoryId, payload.projectId);
-  const nextDueDate = parseDate(payload.dueDate);
-  await db
-    .update(tasks)
-    .set({
-      title: payload.title,
-      description: payload.description ?? null,
-      categoryId: category.categoryId,
-      categoryName: category.categoryName,
-      categoryColor: category.categoryColor,
-      phase: payload.phase ?? null,
-      status: payload.status,
-      priority: payload.priority,
-      dueDate: nextDueDate,
-      sortOrder: nextSortOrder,
-      updatedAt: now,
-    })
-    .where(eq(tasks.id, payload.taskId));
-
-  const changes = diffChanges([
-    { field: "title", label: "Title", from: existingTask.title, to: payload.title },
-    {
-      field: "description",
-      label: "Description",
-      from: existingTask.description,
-      to: payload.description ?? null,
-      kind: "rich",
-    },
-    {
-      field: "status",
-      label: "Status",
-      from: taskStatusLabel(existingTask.status),
-      to: taskStatusLabel(payload.status),
-    },
-    {
-      field: "priority",
-      label: "Priority",
-      from: priorityLabel(existingTask.priority),
-      to: priorityLabel(payload.priority),
-    },
-    {
-      field: "dueDate",
-      label: "Due date",
-      from: formatActivityDate(existingTask.dueDate),
-      to: formatActivityDate(nextDueDate),
-    },
-    {
-      field: "category",
-      label: "Category",
-      from: existingTask.categoryName,
-      to: category.categoryName,
-    },
-    { field: "phase", label: "Phase", from: existingTask.phase, to: payload.phase ?? null },
-  ]);
-
-  await touchProject(payload.projectId, now);
-  await logProjectActivity(db, {
-    ownerId: viewer.id,
-    projectId: payload.projectId,
-    entityType: "task",
-    entityId: payload.taskId,
-    action: existingTask.status === payload.status ? "updated" : "moved",
-    label:
-      existingTask.status === payload.status
-        ? "Updated task"
-        : `Moved task to ${payload.status}`,
-    detail: payload.title,
-    changes,
-    createdAt: now,
-  });
-
-  const destination = safeReturnPath(
-    payload.returnTo,
-    `/projects/${payload.projectId}?task=${payload.taskId}`,
-  );
-
-  revalidateProjectViews(payload.projectId, {
-    projects: true,
-    today: true,
-    overview: true,
-    board: true,
-    clientBoard: true,
-  });
-  redirect(destination);
 }
 
 export async function deleteTaskAction(formData: FormData) {
@@ -1871,6 +1631,84 @@ export async function deleteTaskCategoryAction(formData: FormData) {
   });
 }
 
+// ---- Task statuses (board columns) ------------------------------------------
+
+const statusFormBool = (value: FormDataEntryValue | null) =>
+  value === "true" || value === "on";
+
+export async function createTaskStatusAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const projectId = String(formData.get("projectId") ?? "");
+  const { statusId, name, color } = await createTaskStatusService(viewer, {
+    projectId,
+    name: String(formData.get("name") ?? ""),
+    color: formData.get("color") ? String(formData.get("color")) : undefined,
+    isTerminal: statusFormBool(formData.get("isTerminal")),
+  });
+
+  revalidateProjectViews(projectId, {
+    overview: true,
+    board: true,
+    settings: true,
+  });
+
+  return { id: statusId, name, color };
+}
+
+export async function updateTaskStatusDefAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const name = formData.get("name");
+  const color = formData.get("color");
+  const isTerminal = formData.get("isTerminal");
+  const isInitial = formData.get("isInitial");
+
+  const { projectId } = await updateTaskStatusDefService(viewer, {
+    statusId: String(formData.get("statusId") ?? ""),
+    name: name != null ? String(name) : undefined,
+    color: color != null ? String(color) : undefined,
+    isTerminal: isTerminal != null ? statusFormBool(isTerminal) : undefined,
+    isInitial: isInitial != null ? statusFormBool(isInitial) : undefined,
+  });
+
+  revalidateProjectViews(projectId, {
+    overview: true,
+    board: true,
+    settings: true,
+  });
+}
+
+export async function deleteTaskStatusAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const { projectId } = await deleteTaskStatusService(viewer, {
+    statusId: String(formData.get("statusId") ?? ""),
+  });
+
+  revalidateProjectViews(projectId, {
+    overview: true,
+    board: true,
+    settings: true,
+  });
+}
+
+export async function reorderTaskStatusesAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const projectId = String(formData.get("projectId") ?? "");
+  let orderedIds: string[] = [];
+  try {
+    const parsed = JSON.parse(String(formData.get("orderedIds") ?? "[]"));
+    if (Array.isArray(parsed)) orderedIds = parsed.map((id) => String(id));
+  } catch {
+    orderedIds = [];
+  }
+  await reorderTaskStatusesService(viewer, { projectId, orderedIds });
+
+  revalidateProjectViews(projectId, {
+    overview: true,
+    board: true,
+    settings: true,
+  });
+}
+
 // ---- Task labels ------------------------------------------------------------
 
 const labelNameSchema = z.string().trim().min(1).max(40);
@@ -2143,7 +1981,12 @@ export async function createDailyTaskAction(formData: FormData) {
       // lands on the project's Main branch.
       const project = await assertProjectTaskAccess(viewer, projectId);
       const branchId = await resolveDefaultBranchId(projectId);
-      const sortOrder = await getNextTaskSortOrder(projectId, "todo", branchId);
+      const initial = await getProjectInitialStatus(projectId);
+      const sortOrder = await getNextTaskSortOrder(
+        projectId,
+        initial.statusId,
+        branchId,
+      );
       const newTaskId = crypto.randomUUID();
       const codeNumber = await nextTaskCodeNumber(projectId);
       const code = formatTaskCode(project.slug, codeNumber);
@@ -2158,7 +2001,10 @@ export async function createDailyTaskAction(formData: FormData) {
         description: payload.description ?? null,
         codeNumber,
         priority: payload.priority,
-        status: "todo",
+        statusId: initial.statusId,
+        statusName: initial.statusName,
+        statusColor: initial.statusColor,
+        isTerminal: initial.isTerminal,
         sortOrder,
         statusChangedAt: now,
         createdAt: now,
@@ -2414,7 +2260,12 @@ export async function adminCreateDailyTaskForUsersAction(formData: FormData) {
       !sharedLinkedTaskId
     ) {
       const branchId = await resolveDefaultBranchId(project.id);
-      const sortOrder = await getNextTaskSortOrder(project.id, "todo", branchId);
+      const initial = await getProjectInitialStatus(project.id);
+      const sortOrder = await getNextTaskSortOrder(
+        project.id,
+        initial.statusId,
+        branchId,
+      );
       const newTaskId = crypto.randomUUID();
       const codeNumber = await nextTaskCodeNumber(project.id);
       const code = formatTaskCode(project.slug, codeNumber);
@@ -2428,7 +2279,10 @@ export async function adminCreateDailyTaskForUsersAction(formData: FormData) {
         description: payload.description ?? null,
         codeNumber,
         priority: payload.priority,
-        status: "todo",
+        statusId: initial.statusId,
+        statusName: initial.statusName,
+        statusColor: initial.statusColor,
+        isTerminal: initial.isTerminal,
         sortOrder,
         statusChangedAt: now,
         createdAt: now,
