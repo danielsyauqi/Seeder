@@ -181,7 +181,9 @@ import {
 import { PROJECT_SWATCHES } from "@/lib/swatches";
 
 function jsonResult(data: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  // Compact (no indentation): every tool response goes through here, and pretty-
+  // printing only adds whitespace tokens the agent never needs.
+  return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
 }
 
 // Service functions throw plain Errors ("Project not found.", etc.); surface
@@ -262,12 +264,13 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
     {
       title: "List tasks",
       description:
-        "List tasks in projects you can access. Filter by projectId, statusId (a status id from list-task-statuses), assignedToMe, or branch (a branch id from list-branches — omit to list across all branches). Capped at 100 — use filters to narrow. Read-only.",
+        "List tasks in projects you can access. Filter by projectId, statusId (a status id from list-task-statuses), assignedToMe, or branch (a branch id from list-branches — omit to list across all branches). Capped at 100 — use filters to narrow. Returns a lean row (id, code, title, status, isTerminal, priority, projectId, assigneeId, dueDate); pass verbose:true to also include statusColor and branchId. Read-only.",
       inputSchema: {
         projectId: z.string().optional(),
         statusId: z.string().optional(),
         assignedToMe: z.boolean().optional(),
         branchId: z.string().optional(),
+        verbose: z.boolean().optional(),
       },
       annotations: { readOnlyHint: true },
     },
@@ -279,8 +282,12 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
     {
       title: "Read task",
       description:
-        "Read one task (with its subtasks) by id. Returns null if it doesn't exist or you can't access it. Read-only.",
-      inputSchema: { projectId: z.string(), taskId: z.string() },
+        "Read one task (with its subtasks) by id. The description is returned as plain text by default; pass format:'rich' for the raw editor (TipTap) JSON. Returns null if it doesn't exist or you can't access it. Read-only.",
+      inputSchema: {
+        projectId: z.string(),
+        taskId: z.string(),
+        format: z.enum(["plain", "rich"]).optional(),
+      },
       annotations: { readOnlyHint: true },
     },
     async (args) => jsonResult(await readTask(viewer, args)),
@@ -367,8 +374,12 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
     {
       title: "Read request",
       description:
-        "Read one client request by id. Returns null if it doesn't exist or you can't access it. Read-only.",
-      inputSchema: { projectId: z.string(), requestId: z.string() },
+        "Read one client request by id. The description is returned as plain text by default; pass format:'rich' for the raw editor (TipTap) JSON. Returns null if it doesn't exist or you can't access it. Read-only.",
+      inputSchema: {
+        projectId: z.string(),
+        requestId: z.string(),
+        format: z.enum(["plain", "rich"]).optional(),
+      },
       annotations: { readOnlyHint: true },
     },
     async (args) => jsonResult(await readRequest(viewer, args)),
@@ -443,8 +454,11 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
     {
       title: "Read project notes",
       description:
-        "List a project's notes by projectId, newest first. Returns [] if there are no notes or you can't access the project. Read-only.",
-      inputSchema: { projectId: z.string() },
+        "List a project's notes by projectId, newest first. Note content is returned as plain text by default; pass format:'rich' for the raw editor (TipTap) JSON. Returns [] if there are no notes or you can't access the project. Read-only.",
+      inputSchema: {
+        projectId: z.string(),
+        format: z.enum(["plain", "rich"]).optional(),
+      },
       annotations: { readOnlyHint: true },
     },
     async (args) => jsonResult(await listProjectNotes(viewer, args)),
@@ -473,10 +487,11 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
     {
       title: "List project activity",
       description:
-        "List project history (the audit log, with before→after diffs), newest first. Optional projectId scopes to one project; otherwise spans all you can access. Read-only.",
+        "List project history (the audit log), newest first. Optional projectId scopes to one project; otherwise spans all you can access. Before→after diffs are omitted by default to keep responses small — pass includeChanges:true to include them (rich diffs are reduced to plain text). Read-only.",
       inputSchema: {
         projectId: z.string().optional(),
         limit: z.number().int().min(1).max(100).optional(),
+        includeChanges: z.boolean().optional(),
       },
       annotations: { readOnlyHint: true },
     },

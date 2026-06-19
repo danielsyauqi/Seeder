@@ -13,6 +13,7 @@ import { canAccessProject, getPersonalProjectIds } from "@/lib/authz";
 import { formatRequestCode, formatTaskCode } from "@/lib/codes";
 import { getSearchIndexForUser, listProjectsForUser } from "@/lib/data";
 import { getDb } from "@/lib/db";
+import { parseRichText, richTextToPlainText } from "@/lib/rich-text";
 import {
   clientRequests,
   dailyTasks,
@@ -61,15 +62,17 @@ export type TaskSummary = {
   id: string;
   code: string | null;
   title: string;
-  statusId: string;
+  statusId: string; // non-strippable: the write path (update-task) needs it
   status: string; // status name (the project's custom column label)
-  statusColor: string;
   isTerminal: boolean;
   priority: Priority;
-  projectId: string;
-  branchId: string | null;
+  projectId: string; // non-strippable: the write path needs it
   assigneeId: string | null;
   dueDate: string | null;
+  // Verbose-only (presentational color / branch scoping); omitted from the lean
+  // default so a full board doesn't carry 100 rows of hex + branch UUIDs.
+  statusColor?: string;
+  branchId?: string | null;
 };
 
 export type TaskDetail = TaskSummary & {
@@ -144,6 +147,44 @@ export type StatusUpdate = {
 
 const MAX_ROWS = 100;
 
+type RichFormat = "plain" | "rich";
+
+/**
+ * Render a stored rich-text value (TipTap JSON) for an MCP read. Default "plain"
+ * strips it to plain text — the big token win, since raw editor JSON is several
+ * times larger than the text it carries. "rich" returns the raw stored doc for a
+ * client that wants to re-render it. Null in → null out.
+ */
+function renderRichText(
+  value: string | null,
+  format: RichFormat = "plain",
+): string | null {
+  if (value == null) return null;
+  if (format === "rich") return value;
+  return richTextToPlainText(parseRichText(value));
+}
+
+/**
+ * Plain-text-reduce the rich diffs inside an activity-changes array: a change of
+ * kind "rich" carries raw TipTap JSON in from/to, so collapse those to plain text
+ * so an opted-in caller doesn't pay the full editor-JSON token cost.
+ */
+function reduceChanges(
+  changes: ActivityChange[] | null,
+): ActivityChange[] | null {
+  if (!changes) return null;
+  return changes.map((c) =>
+    c.kind === "rich"
+      ? {
+          ...c,
+          from:
+            c.from == null ? null : richTextToPlainText(parseRichText(c.from)),
+          to: c.to == null ? null : richTextToPlainText(parseRichText(c.to)),
+        }
+      : c,
+  );
+}
+
 /** projectId → slug, for formatting display codes in list results. */
 async function slugMap(
   projectIds: string[],
@@ -216,6 +257,7 @@ export async function listTasks(
     statusId?: string;
     assignedToMe?: boolean;
     branchId?: string;
+    verbose?: boolean;
   },
 ): Promise<TaskSummary[]> {
   const db = getDb();
@@ -244,25 +286,30 @@ export async function listTasks(
   }
   const capped = rows.slice(0, MAX_ROWS);
   const slugs = await slugMap(capped.map((t) => t.projectId));
-  return capped.map((t) => ({
-    id: t.id,
-    code: formatTaskCode(slugs.get(t.projectId) ?? null, t.codeNumber),
-    title: t.title,
-    statusId: t.statusId,
-    status: t.statusName,
-    statusColor: t.statusColor,
-    isTerminal: t.isTerminal,
-    priority: t.priority,
-    projectId: t.projectId,
-    branchId: t.branchId,
-    assigneeId: t.assigneeId,
-    dueDate: t.dueDate ? t.dueDate.toISOString() : null,
-  }));
+  return capped.map((t) => {
+    const summary: TaskSummary = {
+      id: t.id,
+      code: formatTaskCode(slugs.get(t.projectId) ?? null, t.codeNumber),
+      title: t.title,
+      statusId: t.statusId,
+      status: t.statusName,
+      isTerminal: t.isTerminal,
+      priority: t.priority,
+      projectId: t.projectId,
+      assigneeId: t.assigneeId,
+      dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+    };
+    if (filter?.verbose) {
+      summary.statusColor = t.statusColor;
+      summary.branchId = t.branchId;
+    }
+    return summary;
+  });
 }
 
 export async function readTask(
   viewer: Viewer,
-  input: { projectId: string; taskId: string },
+  input: { projectId: string; taskId: string; format?: RichFormat },
 ): Promise<TaskDetail | null> {
   if (!(await canAccessProject(viewer, input.projectId))) return null;
   const db = getDb();
@@ -298,7 +345,7 @@ export async function readTask(
     branchId: task.branchId,
     assigneeId: task.assigneeId,
     dueDate: task.dueDate ? task.dueDate.toISOString() : null,
-    description: task.description,
+    description: renderRichText(task.description, input.format),
     category: task.categoryId
       ? { id: task.categoryId, name: task.categoryName ?? "" }
       : null,
@@ -344,7 +391,7 @@ export async function listRequests(
 
 export async function readRequest(
   viewer: Viewer,
-  input: { projectId: string; requestId: string },
+  input: { projectId: string; requestId: string; format?: RichFormat },
 ): Promise<RequestDetail | null> {
   if (!(await canAccessProject(viewer, input.projectId))) return null;
   const db = getDb();
@@ -369,7 +416,7 @@ export async function readRequest(
     priority: row.priority,
     projectId: row.projectId,
     branchId: row.branchId,
-    description: row.description,
+    description: renderRichText(row.description, input.format),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -477,7 +524,7 @@ export async function listDailyTasks(
  */
 export async function listProjectNotes(
   viewer: Viewer,
-  input: { projectId: string },
+  input: { projectId: string; format?: RichFormat },
 ): Promise<ProjectNote[]> {
   if (!(await canAccessProject(viewer, input.projectId))) return [];
   const db = getDb();
@@ -488,7 +535,7 @@ export async function listProjectNotes(
     .orderBy(desc(projectNotes.createdAt));
   return rows.map((row) => ({
     id: row.id,
-    content: row.content,
+    content: renderRichText(row.content, input.format) ?? "",
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }));
@@ -501,7 +548,7 @@ export async function listProjectNotes(
  */
 export async function listProjectActivity(
   viewer: Viewer,
-  filter?: { projectId?: string; limit?: number },
+  filter?: { projectId?: string; limit?: number; includeChanges?: boolean },
 ): Promise<ActivityEntry[]> {
   const db = getDb();
   let scopeIds: string[];
@@ -527,7 +574,7 @@ export async function listProjectActivity(
     action: a.action,
     label: a.label,
     detail: a.detail,
-    changes: a.changes ?? null,
+    changes: filter?.includeChanges ? reduceChanges(a.changes ?? null) : null,
     actorId: a.ownerId,
     createdAt: a.createdAt.toISOString(),
   }));
