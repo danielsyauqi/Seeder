@@ -271,20 +271,20 @@ export async function listTasks(
     scopeIds = await getPersonalProjectIds(viewer.id);
   }
   if (scopeIds.length === 0) return [];
-  let rows = await db
+  // Filter AND cap in SQL so the Worker only ever receives MAX_ROWS rows. The
+  // previous version loaded every task in scope into memory and filtered/sliced
+  // in JS, which scales with total tasks (not the 100 returned) and blew the
+  // Worker's CPU/RAM under concurrent MCP load.
+  const clauses = [inArray(tasks.projectId, scopeIds)];
+  if (filter?.statusId) clauses.push(eq(tasks.statusId, filter.statusId));
+  if (filter?.branchId) clauses.push(eq(tasks.branchId, filter.branchId));
+  if (filter?.assignedToMe) clauses.push(eq(tasks.assigneeId, viewer.id));
+  const capped = await db
     .select()
     .from(tasks)
-    .where(inArray(tasks.projectId, scopeIds));
-  if (filter?.statusId) {
-    rows = rows.filter((t) => t.statusId === filter.statusId);
-  }
-  if (filter?.branchId) {
-    rows = rows.filter((t) => t.branchId === filter.branchId);
-  }
-  if (filter?.assignedToMe) {
-    rows = rows.filter((t) => t.assigneeId === viewer.id);
-  }
-  const capped = rows.slice(0, MAX_ROWS);
+    .where(and(...clauses))
+    .orderBy(asc(tasks.sortOrder))
+    .limit(MAX_ROWS);
   const slugs = await slugMap(capped.map((t) => t.projectId));
   return capped.map((t) => {
     const summary: TaskSummary = {
@@ -366,17 +366,16 @@ export async function listRequests(
     scopeIds = await getPersonalProjectIds(viewer.id);
   }
   if (scopeIds.length === 0) return [];
-  let rows = await db
+  // Filter + cap in SQL (see listTasks) — newest first, never a full-table load.
+  const clauses = [inArray(clientRequests.projectId, scopeIds)];
+  if (filter?.status) clauses.push(eq(clientRequests.status, filter.status));
+  if (filter?.branchId) clauses.push(eq(clientRequests.branchId, filter.branchId));
+  const capped = await db
     .select()
     .from(clientRequests)
-    .where(inArray(clientRequests.projectId, scopeIds));
-  if (filter?.status) {
-    rows = rows.filter((r) => r.status === filter.status);
-  }
-  if (filter?.branchId) {
-    rows = rows.filter((r) => r.branchId === filter.branchId);
-  }
-  const capped = rows.slice(0, MAX_ROWS);
+    .where(and(...clauses))
+    .orderBy(desc(clientRequests.createdAt))
+    .limit(MAX_ROWS);
   const slugs = await slugMap(capped.map((r) => r.projectId));
   return capped.map((r) => ({
     id: r.id,

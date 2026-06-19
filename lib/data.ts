@@ -1428,8 +1428,37 @@ export async function getProjectsDashboardForViewer(
 }
 
 export async function getSearchIndexForUser(userId: string) {
-  const { allProjects, requestsForOwner, tasksForOwner } =
-    await getOwnerWorkspaceCollections(userId);
+  const db = getDb();
+  const ids = await getPersonalProjectIds(userId);
+  if (ids.length === 0) return [];
+
+  // Bounded, SEARCH-ONLY load: cap each collection to the most-recently-updated
+  // SEARCH_CAP rows. The previous version reused the unbounded workspace
+  // collections (shared with stats/notifications), so every search pulled
+  // thousands of rows into the Worker and rebuilt a full in-memory index — the
+  // #1 cause of the Worker resource (1102) blowups under concurrent MCP load.
+  // Capping here is isolated to search; the stats path keeps its full reads.
+  const SEARCH_CAP = 1000;
+  const [allProjects, requestsForOwner, tasksForOwner] = await Promise.all([
+    db
+      .select()
+      .from(projects)
+      .where(inArray(projects.id, ids))
+      .orderBy(desc(projects.updatedAt))
+      .limit(SEARCH_CAP),
+    db
+      .select()
+      .from(clientRequests)
+      .where(inArray(clientRequests.projectId, ids))
+      .orderBy(desc(clientRequests.updatedAt))
+      .limit(SEARCH_CAP),
+    db
+      .select()
+      .from(tasks)
+      .where(inArray(tasks.projectId, ids))
+      .orderBy(desc(tasks.updatedAt))
+      .limit(SEARCH_CAP),
+  ]);
 
   const defaultBranchByProject = await getDefaultBranchMap(
     allProjects.map((project) => project.id),
