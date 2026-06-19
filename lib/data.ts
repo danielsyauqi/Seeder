@@ -299,10 +299,17 @@ const getRequestsForUser = cache(async (userId: string) => {
   const ids = await getPersonalProjectIds(userId);
   if (ids.length === 0) return [];
 
+  // Cap as a safety valve — these collections feed dashboard stats AND the
+  // every-page app shell, so an unbounded load was pulling the whole workspace
+  // into the Worker on every render. 5000 covers any realistic team; beyond it,
+  // counts cap rather than 1102 the Worker. (Move stats to SQL GROUP BY for
+  // true unbounded-scale correctness — see the perf notes.)
   return db
     .select()
     .from(clientRequests)
-    .where(inArray(clientRequests.projectId, ids));
+    .where(inArray(clientRequests.projectId, ids))
+    .orderBy(desc(clientRequests.updatedAt))
+    .limit(5000);
 });
 
 const getTasksForUser = cache(async (userId: string) => {
@@ -310,7 +317,12 @@ const getTasksForUser = cache(async (userId: string) => {
   const ids = await getPersonalProjectIds(userId);
   if (ids.length === 0) return [];
 
-  return db.select().from(tasks).where(inArray(tasks.projectId, ids));
+  return db
+    .select()
+    .from(tasks)
+    .where(inArray(tasks.projectId, ids))
+    .orderBy(desc(tasks.updatedAt))
+    .limit(5000);
 });
 
 const getStatusUpdatesForUser = cache(async (userId: string) => {
@@ -321,7 +333,9 @@ const getStatusUpdatesForUser = cache(async (userId: string) => {
   return db
     .select()
     .from(projectStatusUpdates)
-    .where(inArray(projectStatusUpdates.projectId, ids));
+    .where(inArray(projectStatusUpdates.projectId, ids))
+    .orderBy(desc(projectStatusUpdates.updatedAt))
+    .limit(5000);
 });
 
 const getCompletedSubtasksForUser = cache(async (userId: string) => {
@@ -340,7 +354,9 @@ const getCompletedSubtasksForUser = cache(async (userId: string) => {
         inArray(taskChecklistItems.projectId, ids),
         eq(taskChecklistItems.isCompleted, true),
       ),
-    );
+    )
+    .orderBy(desc(taskChecklistItems.completedAt))
+    .limit(10000);
 });
 
 const getRecentActivityRowsForUser = cache(async (userId: string) => {
@@ -362,7 +378,9 @@ const getRecentActivityRowsForUser = cache(async (userId: string) => {
         inArray(projectActivity.projectId, ids),
         gte(projectActivity.createdAt, cutoff),
       ),
-    );
+    )
+    .orderBy(desc(projectActivity.createdAt))
+    .limit(10000);
 });
 
 const getOwnerWorkspaceCollections = cache(async (userId: string) => {
@@ -394,10 +412,19 @@ const getAllWorkspaceCollections = cache(async () => {
       db
         .select()
         .from(projects)
-        .orderBy(desc(projects.updatedAt), asc(projects.name)),
-      db.select().from(clientRequests),
-      db.select().from(tasks),
-      db.select().from(projectStatusUpdates),
+        .orderBy(desc(projects.updatedAt), asc(projects.name))
+        .limit(5000),
+      db
+        .select()
+        .from(clientRequests)
+        .orderBy(desc(clientRequests.updatedAt))
+        .limit(5000),
+      db.select().from(tasks).orderBy(desc(tasks.updatedAt)).limit(5000),
+      db
+        .select()
+        .from(projectStatusUpdates)
+        .orderBy(desc(projectStatusUpdates.updatedAt))
+        .limit(5000),
     ]);
 
   return {
@@ -1205,7 +1232,8 @@ export async function getProjectWorkspace(
             )
           : eq(clientRequests.projectId, projectId),
       )
-      .orderBy(desc(clientRequests.updatedAt), desc(clientRequests.createdAt)),
+      .orderBy(desc(clientRequests.updatedAt), desc(clientRequests.createdAt))
+      .limit(2000),
     db
       .select()
       .from(tasks)
@@ -1214,7 +1242,8 @@ export async function getProjectWorkspace(
           ? and(eq(tasks.projectId, projectId), eq(tasks.branchId, currentBranchId))
           : eq(tasks.projectId, projectId),
       )
-      .orderBy(asc(tasks.sortOrder), desc(tasks.updatedAt)),
+      .orderBy(asc(tasks.sortOrder), desc(tasks.updatedAt))
+      .limit(2000),
     db
       .select()
       .from(taskChecklistItems)
@@ -1223,17 +1252,20 @@ export async function getProjectWorkspace(
         asc(taskChecklistItems.taskId),
         asc(taskChecklistItems.sortOrder),
         asc(taskChecklistItems.createdAt),
-      ),
+      )
+      .limit(5000),
     db
       .select()
       .from(projectStatusUpdates)
       .where(eq(projectStatusUpdates.projectId, projectId))
-      .orderBy(desc(projectStatusUpdates.createdAt)),
+      .orderBy(desc(projectStatusUpdates.createdAt))
+      .limit(200),
     db
       .select()
       .from(projectNotes)
       .where(eq(projectNotes.projectId, projectId))
-      .orderBy(desc(projectNotes.createdAt)),
+      .orderBy(desc(projectNotes.createdAt))
+      .limit(200),
     db
       .select({
         id: projectActivity.id,
@@ -1288,7 +1320,8 @@ export async function getProjectWorkspace(
       .from(taskComments)
       .innerJoin(user, eq(user.id, taskComments.authorId))
       .where(eq(taskComments.projectId, projectId))
-      .orderBy(asc(taskComments.createdAt)),
+      .orderBy(asc(taskComments.createdAt))
+      .limit(5000),
     db
       .select({
         id: requestComments.id,
@@ -1303,7 +1336,8 @@ export async function getProjectWorkspace(
       .from(requestComments)
       .innerJoin(user, eq(user.id, requestComments.authorId))
       .where(eq(requestComments.projectId, projectId))
-      .orderBy(asc(requestComments.createdAt)),
+      .orderBy(asc(requestComments.createdAt))
+      .limit(5000),
     db
       .select()
       .from(taskCategories)

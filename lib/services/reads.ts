@@ -531,7 +531,8 @@ export async function listProjectNotes(
     .select()
     .from(projectNotes)
     .where(eq(projectNotes.projectId, input.projectId))
-    .orderBy(desc(projectNotes.createdAt));
+    .orderBy(desc(projectNotes.createdAt))
+    .limit(MAX_ROWS);
   return rows.map((row) => ({
     id: row.id,
     content: renderRichText(row.content, input.format) ?? "",

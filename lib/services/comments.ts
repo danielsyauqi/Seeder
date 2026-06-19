@@ -152,7 +152,8 @@ export async function listTaskComments(
         eq(taskComments.projectId, input.projectId),
       ),
     )
-    .orderBy(asc(taskComments.createdAt));
+    .orderBy(asc(taskComments.createdAt))
+    .limit(100);
 
   return rows.map((row) => ({
     id: row.id,
@@ -306,7 +307,8 @@ export async function listRequestComments(
         eq(requestComments.projectId, input.projectId),
       ),
     )
-    .orderBy(asc(requestComments.createdAt));
+    .orderBy(asc(requestComments.createdAt))
+    .limit(100);
 
   return rows.map((row) => ({
     id: row.id,
