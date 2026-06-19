@@ -8,7 +8,6 @@ import { getDb } from "@/lib/db";
 import {
   projectMembers,
   projects,
-  spaceMembers,
   spaces,
   type ProjectMemberRole,
   type UserRole,
@@ -28,28 +27,12 @@ type ViewerInput = { id: string; role: UserRole };
 // owners/admins are super-users and resolve to "owner" for capability checks.
 export type ProjectRole = "owner" | "leader" | "member";
 
-/**
- * The COMPANY space ids the user is a member of. This is the one shared
- * predicate behind the Spaces access tier: being a member of a company space
- * grants baseline access to every project in it. Encoded ONCE here and applied
- * at both access chokepoints (getPersonalProjectIds for lists,
- * canAccessProject/getProjectRole for single projects) so a project can never
- * appear in a list it would 403 on, or be openable yet invisible. Personal
- * spaces are never returned here, so they stay owner-only.
- */
-export const getCompanySpaceIds = cache(
-  async (userId: string): Promise<string[]> => {
-    const db = getDb();
-    const rows = await db
-      .select({ id: spaceMembers.spaceId })
-      .from(spaceMembers)
-      .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
-      .where(
-        and(eq(spaceMembers.userId, userId), eq(spaces.kind, "company")),
-      );
-    return rows.map((row) => row.id);
-  },
-);
+// Space membership does NOT grant project access. A project is reachable only by
+// its owner, an explicit project_members row, or a workspace admin — being a
+// member of the project's space is irrelevant. Spaces are an organizational
+// grouping + team roster (the lead manages it and can create projects in it);
+// access is always invited per-project, and a person need not be in the space to
+// be invited to a project that lives in it.
 
 /**
  * Projects the user has a direct relationship with — they own it OR they're
@@ -59,8 +42,7 @@ export const getCompanySpaceIds = cache(
 export const getPersonalProjectIds = cache(
   async (userId: string): Promise<string[]> => {
     const db = getDb();
-    const companySpaceIds = await getCompanySpaceIds(userId);
-    const [owned, memberOf, spaceProjects] = await Promise.all([
+    const [owned, memberOf] = await Promise.all([
       db
         .select({ id: projects.id })
         .from(projects)
@@ -69,19 +51,11 @@ export const getPersonalProjectIds = cache(
         .select({ id: projectMembers.projectId })
         .from(projectMembers)
         .where(eq(projectMembers.userId, userId)),
-      // Every project in a company space the user belongs to.
-      companySpaceIds.length
-        ? db
-            .select({ id: projects.id })
-            .from(projects)
-            .where(inArray(projects.spaceId, companySpaceIds))
-        : Promise.resolve([] as { id: string }[]),
     ]);
     return [
       ...new Set([
         ...owned.map((r) => r.id),
         ...memberOf.map((r) => r.id),
-        ...spaceProjects.map((r) => r.id),
       ]),
     ];
   },
@@ -119,13 +93,7 @@ export async function canAccessProject(
     .limit(1);
   if (member) return true;
 
-  // Baseline access via the project's company space (Personal spaces never
-  // appear in getCompanySpaceIds, so they stay owner-only).
-  if (project.spaceId) {
-    const companySpaceIds = await getCompanySpaceIds(viewer.id);
-    if (companySpaceIds.includes(project.spaceId)) return true;
-  }
-
+  // Space membership grants no access — only owner/member/admin above do.
   return false;
 }
 
@@ -137,7 +105,7 @@ export async function canAccessProject(
 // Request-cached: a gated mutation (and bulk ops like setTaskCategory looping
 // over many tasks) checks the role repeatedly for the same (viewer, project);
 // cache() collapses those to one query per request, matching its siblings
-// getCompanySpaceIds / getProjectMemberPermissions.
+// getProjectMemberPermissions.
 export const getProjectRole = cache(async (
   viewer: ViewerInput,
   projectId: string,
@@ -146,7 +114,7 @@ export const getProjectRole = cache(async (
 
   const db = getDb();
   const [project] = await db
-    .select({ ownerId: projects.ownerId, spaceId: projects.spaceId })
+    .select({ ownerId: projects.ownerId })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1);
@@ -165,13 +133,8 @@ export const getProjectRole = cache(async (
     .limit(1);
   if (member?.role) return member.role as ProjectMemberRole;
 
-  // No explicit role, but a member of the project's company space → baseline
-  // "member". Personal-space projects never match (owner-only).
-  if (project.spaceId) {
-    const companySpaceIds = await getCompanySpaceIds(viewer.id);
-    if (companySpaceIds.includes(project.spaceId)) return "member";
-  }
-
+  // Space membership grants no role — only ownership / an explicit
+  // project_members row / workspace admin does.
   return null;
 });
 
@@ -202,10 +165,10 @@ export async function canAdministerProject(
 }
 
 /**
- * Project IDs a viewer can see. Admin tier → every project; otherwise the full
- * personal set (owned + explicit membership + company-space projects). Delegates
- * to getPersonalProjectIds so it can never diverge into a narrower rule that
- * would bypass the space tier.
+ * Project IDs a viewer can see. Admin tier → every project; otherwise the
+ * personal set (owned + explicit project membership). Space membership does not
+ * widen this. Delegates to getPersonalProjectIds so visibility can't diverge
+ * from access.
  */
 export async function visibleProjectIds(
   viewer: ViewerInput,
@@ -218,8 +181,8 @@ export async function visibleProjectIds(
   return getPersonalProjectIds(viewer.id);
 }
 
-// Delegates to canAccessProject (same rule: admin / owner / explicit role /
-// company-space member) so visibility can't diverge from access.
+// Delegates to canAccessProject (same rule: admin / owner / explicit project
+// membership) so visibility can't diverge from access.
 export async function canViewProject(
   viewer: ViewerInput,
   projectId: string,

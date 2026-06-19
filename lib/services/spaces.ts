@@ -18,6 +18,7 @@ import {
   canAdministerProject,
   canManageSpace,
   canPostToSpace,
+  getPersonalProjectIds,
 } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import { projects, spaceMembers, spaces, user } from "@/lib/db/schema";
@@ -298,15 +299,25 @@ export async function getSpaceDetail(
       .orderBy(desc(projects.updatedAt)),
   ]);
 
+  const canManage = admin || space.leadId === viewer.id;
+  // Space membership grants no project access: a regular member sees only the
+  // projects they actually belong to (owned or invited). The lead/admin manage
+  // the space and see its full project list.
+  let visibleProjects = projectRows;
+  if (!canManage) {
+    const accessibleIds = new Set(await getPersonalProjectIds(viewer.id));
+    visibleProjects = projectRows.filter((p) => accessibleIds.has(p.id));
+  }
+
   return {
     id: space.id,
     kind: space.kind,
     name: space.name,
     leadId: space.leadId,
     leadName: space.leadName,
-    canManage: admin || space.leadId === viewer.id,
+    canManage,
     members: memberRows.map((m) => ({ ...m, isLead: m.userId === space.leadId })),
-    projects: projectRows,
+    projects: visibleProjects,
   };
 }
 
