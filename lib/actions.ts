@@ -1709,6 +1709,23 @@ export async function reorderTaskStatusesAction(formData: FormData) {
   });
 }
 
+// ---- Sidebar project order --------------------------------------------------
+
+// Persist the viewer's personal sidebar Project List order (drag-to-rearrange).
+// Per-user: stored as a JSON id array on the user row; the app shell sorts the
+// sidebar by it. No revalidate — the sidebar reorders optimistically and the
+// layout re-reads the saved order on the next full load.
+export async function reorderSidebarProjectsAction(orderedIds: string[]) {
+  const viewer = await requireViewer();
+  const ids = Array.isArray(orderedIds)
+    ? orderedIds.filter((id) => typeof id === "string" && id.length).slice(0, 500)
+    : [];
+  await getDb()
+    .update(user)
+    .set({ sidebarProjectOrder: JSON.stringify(ids), updatedAt: new Date() })
+    .where(eq(user.id, viewer.id));
+}
+
 // ---- Task labels ------------------------------------------------------------
 
 const labelNameSchema = z.string().trim().min(1).max(40);

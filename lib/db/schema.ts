@@ -107,6 +107,10 @@ export const user = sqliteTable(
     notificationsClearedAt: integer("notifications_cleared_at", {
       mode: "timestamp_ms",
     }),
+    // The user's personal sidebar project order — a JSON array of project ids.
+    // Projects not listed fall to the end in their default order; ids for
+    // projects the user can no longer see are simply ignored on read.
+    sidebarProjectOrder: text("sidebar_project_order"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch() * 1000)`),

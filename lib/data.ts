@@ -1648,10 +1648,51 @@ export async function getAppShellDataForViewer(viewer: ProjectViewer) {
     };
   });
 
+  // Apply the viewer's personal sidebar order: listed ids first (in saved
+  // sequence), everything else after in its default order. Stale/unknown ids are
+  // ignored, and new projects naturally appear at the end until reordered.
+  const [orderRow] = await getDb()
+    .select({ order: user.sidebarProjectOrder })
+    .from(user)
+    .where(eq(user.id, viewer.id))
+    .limit(1);
+  const orderedProjects = sortBySidebarOrder(projectsWithSpace, orderRow?.order);
+
   return {
-    projects: projectsWithSpace,
+    projects: orderedProjects,
     notificationCount,
   };
+}
+
+/**
+ * Order a project list by a user's saved sidebar order (a JSON array of project
+ * ids). Listed ids come first in saved order; the rest keep their incoming
+ * order. Tolerant of malformed JSON and stale ids.
+ */
+function sortBySidebarOrder<T extends { id: string }>(
+  projects: T[],
+  rawOrder: string | null | undefined,
+): T[] {
+  if (!rawOrder) return projects;
+  let ids: string[];
+  try {
+    const parsed = JSON.parse(rawOrder);
+    if (!Array.isArray(parsed)) return projects;
+    ids = parsed.map((id) => String(id));
+  } catch {
+    return projects;
+  }
+  const rank = new Map(ids.map((id, index) => [id, index]));
+  const FALLBACK = ids.length;
+  return [...projects]
+    .map((project, index) => ({ project, index }))
+    .sort((a, b) => {
+      const ra = rank.get(a.project.id) ?? FALLBACK;
+      const rb = rank.get(b.project.id) ?? FALLBACK;
+      // Same rank (both unlisted) → preserve the incoming order.
+      return ra !== rb ? ra - rb : a.index - b.index;
+    })
+    .map((entry) => entry.project);
 }
 
 export async function getTodayViewForUser(userId: string) {

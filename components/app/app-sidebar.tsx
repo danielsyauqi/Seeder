@@ -4,11 +4,27 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   Bell,
   Buildings,
   CalendarCheck,
   CalendarDots,
   ChartBar,
+  DotsSixVertical,
   Folders,
   GearSix,
   Kanban,
@@ -30,6 +46,7 @@ import { SignOutButton } from "@/components/auth/sign-out-button";
 import {
   clearAllNotificationsAction,
   markNotificationReadAction,
+  reorderSidebarProjectsAction,
 } from "@/lib/actions";
 import type {
   InAppNotificationItem,
@@ -54,6 +71,110 @@ type AppSidebarProps = {
 
 const SIDEBAR_RENDER_VERSION = "2026-05-04.3";
 const SIDEBAR_PROJECT_CAP = 8;
+
+// One draggable row in the sidebar Project List. The whole row is the sortable
+// node; a grip handle (shown on hover, desktop only) carries the drag listeners
+// so the card's link stays clickable and touch-scrolling the sidebar still works.
+function SidebarProjectRow({
+  project,
+  href,
+  isActive,
+  draggable,
+}: {
+  project: ProjectListItem;
+  href: string;
+  isActive: boolean;
+  draggable: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: project.id, disabled: !draggable });
+
+  const hasColor = Boolean(project.color);
+  // Colored rows: soft tint when idle, deepen + invert text to white when
+  // active. Token rescope cascades to text-foreground / -muted-strong / -muted.
+  const colorStyle: React.CSSProperties | undefined = hasColor
+    ? isActive
+      ? {
+          backgroundColor: project.color!,
+          ["--foreground" as never]: "#ffffff",
+          ["--muted" as never]: "rgba(255,255,255,0.78)",
+          ["--muted-strong" as never]: "rgba(255,255,255,0.94)",
+        }
+      : {
+          backgroundColor: `color-mix(in srgb, ${project.color} 18%, transparent)`,
+        }
+    : undefined;
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn("group/proj relative", isDragging && "z-20 opacity-90")}
+    >
+      <Link
+        href={href}
+        className={cn(
+          "relative block rounded-sm py-1.5 pl-3 pr-2 transition",
+          isActive
+            ? hasColor
+              ? null
+              : "bg-accent-soft"
+            : hasColor
+              ? null
+              : "hover:bg-surface",
+        )}
+        style={colorStyle}
+      >
+        {isActive && !hasColor ? (
+          <span
+            aria-hidden
+            className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent animate-breathe"
+          />
+        ) : null}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p
+              className={cn(
+                "truncate text-[13px] font-medium",
+                isActive ? "text-foreground" : "text-muted-strong",
+              )}
+            >
+              {project.name}
+            </p>
+            <p className="mt-0.5 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
+              {formatProjectStatus(project.status)}
+            </p>
+          </div>
+          <Kanban
+            className={cn(
+              "mt-0.5 size-4 shrink-0 text-muted transition",
+              draggable && "md:group-hover/proj:opacity-0",
+            )}
+          />
+        </div>
+      </Link>
+      {draggable ? (
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          aria-label={`Reorder ${project.name}`}
+          className="absolute right-2 top-2 hidden cursor-grab touch-none rounded-sm p-0.5 text-muted opacity-0 transition hover:text-foreground group-hover/proj:opacity-100 active:cursor-grabbing md:block"
+        >
+          <DotsSixVertical className="size-4" />
+        </button>
+      ) : null}
+    </li>
+  );
+}
 
 export function AppSidebar({
   notificationCount,
@@ -83,6 +204,39 @@ export function AppSidebar({
   );
   const [isNotificationsLoading, setIsNotificationsLoading] = useState(false);
   const [notificationsError, setNotificationsError] = useState<string | null>(null);
+
+  // Personal sidebar project order (drag-to-rearrange). Optimistic local copy of
+  // the server-sorted list; resynced when the server order/membership changes.
+  const [orderedProjects, setOrderedProjects] = useState(projects);
+  const projectSignature = projects.map((project) => project.id).join(",");
+  useEffect(() => {
+    setOrderedProjects(projects);
+    // Resync only when the set/order coming from the server changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectSignature]);
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+  const visibleProjects = orderedProjects.slice(0, SIDEBAR_PROJECT_CAP);
+  const handleProjectDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = visibleProjects.map((project) => project.id);
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reorderedVisible = arrayMove(visibleProjects, oldIndex, newIndex);
+    const next = [
+      ...reorderedVisible,
+      ...orderedProjects.slice(SIDEBAR_PROJECT_CAP),
+    ];
+    setOrderedProjects(next);
+    // Persist best-effort; a failed save just means the next load keeps the
+    // previous order (the optimistic UI already reflects the move).
+    void reorderSidebarProjectsAction(next.map((project) => project.id)).catch(
+      () => {},
+    );
+  };
 
   useEffect(() => {
     setLiveNotificationCount(notificationCount);
@@ -531,69 +685,34 @@ export function AppSidebar({
           </div>
 
           <div className="space-y-0.5">
-            {projects.length ? (
-              projects.slice(0, SIDEBAR_PROJECT_CAP).map((project) => {
-                const href = `/projects/${project.id}`;
-                const isActive =
-                  pathname === href || pathname.startsWith(`${href}/`);
-                const hasColor = Boolean(project.color);
-                // Colored rows: soft tint when idle, deepen + invert text to
-                // white when active. Token rescope cascades to text-foreground
-                // / text-muted-strong / text-muted descendants.
-                const colorStyle: React.CSSProperties | undefined = hasColor
-                  ? isActive
-                    ? {
-                        backgroundColor: project.color!,
-                        ["--foreground" as never]: "#ffffff",
-                        ["--muted" as never]: "rgba(255,255,255,0.78)",
-                        ["--muted-strong" as never]: "rgba(255,255,255,0.94)",
-                      }
-                    : {
-                        backgroundColor: `color-mix(in srgb, ${project.color} 18%, transparent)`,
-                      }
-                  : undefined;
-
-                return (
-                  <Link
-                    key={project.id}
-                    href={href}
-                    className={cn(
-                      "relative block rounded-sm py-1.5 pl-3 pr-2 transition",
-                      isActive
-                        ? hasColor
-                          ? null
-                          : "bg-accent-soft"
-                        : hasColor
-                          ? null
-                          : "hover:bg-surface",
-                    )}
-                    style={colorStyle}
-                  >
-                    {isActive && !hasColor ? (
-                      <span
-                        aria-hidden
-                        className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent animate-breathe"
-                      />
-                    ) : null}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p
-                          className={cn(
-                            "truncate text-[13px] font-medium",
-                            isActive ? "text-foreground" : "text-muted-strong",
-                          )}
-                        >
-                          {project.name}
-                        </p>
-                        <p className="mt-0.5 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
-                          {formatProjectStatus(project.status)}
-                        </p>
-                      </div>
-                      <Kanban className="mt-0.5 size-4 text-muted" />
-                    </div>
-                  </Link>
-                );
-              })
+            {orderedProjects.length ? (
+              <DndContext
+                sensors={dndSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleProjectDragEnd}
+              >
+                <SortableContext
+                  items={visibleProjects.map((project) => project.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <ul className="space-y-0.5">
+                    {visibleProjects.map((project) => {
+                      const href = `/projects/${project.id}`;
+                      const isActive =
+                        pathname === href || pathname.startsWith(`${href}/`);
+                      return (
+                        <SidebarProjectRow
+                          key={project.id}
+                          project={project}
+                          href={href}
+                          isActive={isActive}
+                          draggable={visibleProjects.length > 1}
+                        />
+                      );
+                    })}
+                  </ul>
+                </SortableContext>
+              </DndContext>
             ) : (
               <div className="rounded-md border border-dashed border-border bg-surface px-3 py-5 text-center">
                 <div className="mx-auto inline-flex size-8 items-center justify-center rounded-sm border border-border bg-background text-muted">
@@ -604,14 +723,14 @@ export function AppSidebar({
               </div>
             )}
 
-            {projects.length > SIDEBAR_PROJECT_CAP ? (
+            {orderedProjects.length > SIDEBAR_PROJECT_CAP ? (
               <Link
                 href="/projects"
                 className="mt-1 flex items-center justify-between rounded-sm px-3 py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface hover:text-foreground"
               >
                 <span>Show all projects</span>
                 <span className="font-mono text-[11px]">
-                  +{projects.length - SIDEBAR_PROJECT_CAP}
+                  +{orderedProjects.length - SIDEBAR_PROJECT_CAP}
                 </span>
               </Link>
             ) : null}
