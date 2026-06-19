@@ -1,16 +1,18 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
   ArrowCounterClockwise,
   CircleNotch,
   Crown,
+  MagnifyingGlass,
   PencilSimple,
   Plus,
   Prohibit,
   ShieldCheck,
+  Trash,
   UploadSimple,
   User as UserIcon,
   X,
@@ -59,6 +61,8 @@ export function UsersManager({
   const router = useRouter();
   const [editing, setEditing] = useState<EditState>(null);
   const [deactivating, setDeactivating] = useState<WorkspaceUser | null>(null);
+  const [deleting, setDeleting] = useState<WorkspaceUser | null>(null);
+  const [query, setQuery] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -81,6 +85,36 @@ export function UsersManager({
     } finally {
       setPendingId(null);
       setDeactivating(null);
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) =>
+      [u.name, u.email, u.role]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [users, query]);
+
+  async function deleteUser(target: WorkspaceUser) {
+    setPendingId(target.id);
+    try {
+      const response = await fetch(`/api/admin/users/${target.id}`, {
+        method: "DELETE",
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Delete failed");
+      toast("User deleted", "success");
+      startTransition(() => router.refresh());
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Delete failed", "danger");
+    } finally {
+      setPendingId(null);
+      setDeleting(null);
     }
   }
 
@@ -111,13 +145,38 @@ export function UsersManager({
         </div>
       </section>
 
+      {users.length > 0 ? (
+        <div className="space-y-3">
+          <div className="relative">
+            <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by name, email, or role…"
+              aria-label="Search users"
+              className="w-full rounded-md border border-border bg-background py-2.5 pl-9 pr-3 text-[13px] text-foreground outline-none transition placeholder:text-muted focus:border-accent"
+            />
+          </div>
+          <span className="block px-1 font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
+            {query.trim()
+              ? `${filtered.length} of ${users.length} users`
+              : `${users.length} users`}
+          </span>
+        </div>
+      ) : null}
+
       <div className="ui-panel-soft divide-y divide-border">
         {users.length === 0 ? (
           <div className="px-5 py-10 text-center text-[13px] leading-7 text-muted">
             No members yet.
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="px-5 py-10 text-center text-[13px] leading-7 text-muted">
+            No users match “{query.trim()}”.
+          </div>
         ) : (
-          users.map((user) => {
+          filtered.map((user) => {
             const Icon = roleIcon[user.role];
             const disabled = Boolean(user.disabledAt);
             const isSelf = user.id === viewerId;
@@ -190,20 +249,34 @@ export function UsersManager({
                     <PencilSimple className="size-4" />
                   </button>
                   {disabled ? (
-                    <button
-                      type="button"
-                      onClick={() => setActive(user, true)}
-                      disabled={busy}
-                      aria-label={`Reactivate ${user.name}`}
-                      title="Reactivate"
-                      className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted transition hover:border-border-strong hover:bg-surface-strong hover:text-foreground disabled:opacity-60"
-                    >
-                      {busy ? (
-                        <CircleNotch className="size-4 animate-spin" />
-                      ) : (
-                        <ArrowCounterClockwise className="size-4" />
-                      )}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setActive(user, true)}
+                        disabled={busy}
+                        aria-label={`Reactivate ${user.name}`}
+                        title="Reactivate"
+                        className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted transition hover:border-border-strong hover:bg-surface-strong hover:text-foreground disabled:opacity-60"
+                      >
+                        {busy ? (
+                          <CircleNotch className="size-4 animate-spin" />
+                        ) : (
+                          <ArrowCounterClockwise className="size-4" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleting(user)}
+                        disabled={busy || isSelf}
+                        aria-label={`Delete ${user.name}`}
+                        title={
+                          isSelf ? "You can't delete yourself" : "Delete permanently"
+                        }
+                        className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted transition hover:border-danger/40 hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Trash className="size-4" />
+                      </button>
+                    </>
                   ) : (
                     <button
                       type="button"
@@ -245,6 +318,22 @@ export function UsersManager({
         isPending={Boolean(pendingId)}
         onCancel={() => setDeactivating(null)}
         onConfirm={() => deactivating && setActive(deactivating, false)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        title={`Delete ${deleting?.name ?? "user"}?`}
+        description={
+          deleting && deleting.projectsOwned > 0
+            ? `This permanently deletes the account and all ${deleting.projectsOwned} project${deleting.projectsOwned === 1 ? "" : "s"} they own — every task, comment, and bit of history in them. This can't be undone.`
+            : "This permanently deletes the account and everything tied to it. This can't be undone."
+        }
+        confirmLabel="Delete permanently"
+        cancelLabel="Keep user"
+        variant="danger"
+        isPending={Boolean(pendingId)}
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => deleting && deleteUser(deleting)}
       />
     </div>
   );
