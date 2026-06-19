@@ -24,9 +24,7 @@ import {
 } from "@/lib/auth-server";
 import {
   canAccessProject,
-  canProjectCapability,
-  getProjectMemberPermissions,
-  getProjectRole,
+  canManageProject,
   type ProjectCapability,
 } from "@/lib/authz";
 import {
@@ -83,7 +81,10 @@ import {
   renameBranch as renameBranchService,
 } from "@/lib/services/branches";
 import { moveProjectToSpace as moveProjectToSpaceService } from "@/lib/services/spaces";
-import { resolveDefaultBranchId } from "@/lib/services/_shared";
+import {
+  assertProjectCapability,
+  resolveDefaultBranchId,
+} from "@/lib/services/_shared";
 import { isValidProjectColor } from "@/lib/swatches";
 import {
   clientRequests,
@@ -381,21 +382,9 @@ async function assertProjectTaskAccess(
   projectId: string,
   capability: ProjectCapability = "task.write",
 ) {
-  const db = getDb();
-  const [project] = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1);
-  if (!project) throw new Error("Project not found.");
-  const role = await getProjectRole(viewer, projectId);
-  if (role === null) throw new Error("Project not found.");
-  if (role === "owner" || role === "leader") return project;
-  const perms = await getProjectMemberPermissions(projectId);
-  if (perms[capability] !== true) {
-    throw new Error("You don't have permission for this action on this project.");
-  }
-  return project;
+  // Single source of truth: delegate to the service-layer gate so the web and
+  // MCP can never drift. Returns the project row (callers need its slug).
+  return assertProjectCapability(viewer, projectId, capability);
 }
 
 // Load a task by (id, project) with no owner filter. Callers gate access via
@@ -1086,10 +1075,11 @@ export async function convertRequestToTaskAction(formData: FormData) {
   const payload = convertRequestSchema.parse(toPayload(formData));
   const db = getDb();
 
-  // Converting a request into a task creates a task, so it follows the same
-  // task.write capability as the New Task action (owner/leader always; a Member
-  // when the project's Member Access toggle allows it).
-  if (!(await canProjectCapability(viewer, payload.projectId, "task.write"))) {
+  // Converting a request into a task both mutates the client request (status →
+  // converted) and creates a task, so it stays Leader-level (owner/leader/admin)
+  // — it is not one of the delegatable Member Access capabilities and must not
+  // drop below Leader by default.
+  if (!(await canManageProject(viewer, payload.projectId))) {
     throw new Error("Project not found.");
   }
 

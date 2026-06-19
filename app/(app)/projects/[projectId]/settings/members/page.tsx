@@ -107,18 +107,20 @@ export default async function ProjectMembersPage({ params }: PageProps) {
         }))}
       />
 
-      <MemberAccessControl
-        projectId={project.id}
-        capabilities={PROJECT_CAPABILITIES.map((c) => ({
-          key: c.key,
-          label: c.label,
-          description: c.description,
-          group: c.group,
-          defaultForMember: c.defaultForMember,
-        }))}
-        permissions={memberPermissions}
-        canManage={canManage}
-      />
+      {canManage ? (
+        <MemberAccessControl
+          projectId={project.id}
+          capabilities={PROJECT_CAPABILITIES.map((c) => ({
+            key: c.key,
+            label: c.label,
+            description: c.description,
+            group: c.group,
+            defaultForMember: c.defaultForMember,
+          }))}
+          permissions={memberPermissions}
+          canManage={canManage}
+        />
+      ) : null}
     </div>
   );
 }

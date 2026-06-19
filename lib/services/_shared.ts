@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import type { Viewer } from "@/lib/auth-server";
 import {
-  canAccessProject,
   canAdministerProject,
   canManageProject,
   getProjectMemberPermissions,
@@ -120,24 +119,6 @@ export async function resolveCategory(
     return { categoryId: null, categoryName: null, categoryColor: null };
   }
   return { categoryId: row.id, categoryName: row.name, categoryColor: row.color };
-}
-
-export async function assertProjectAccess(viewer: Viewer, projectId: string) {
-  const db = getDb();
-  const [project] = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1);
-
-  if (!project) {
-    throw new Error("Project not found.");
-  }
-  if (!(await canAccessProject(viewer, projectId))) {
-    throw new Error("Project not found.");
-  }
-
-  return project;
 }
 
 /**

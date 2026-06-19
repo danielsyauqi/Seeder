@@ -110,6 +110,28 @@ export const CAPABILITY_DEFAULTS = Object.fromEntries(
 
 const CAPABILITY_KEYS = new Set<string>(PROJECT_CAPABILITIES.map((c) => c.key));
 
+/** Type guard: is `key` a known capability key? */
+export function isProjectCapability(key: string): key is ProjectCapability {
+  return CAPABILITY_KEYS.has(key);
+}
+
+/**
+ * Minimal storage form for a resolved permission map: keep only the capabilities
+ * whose value differs from the current code default. Returns null when nothing
+ * differs (store SQL NULL). This is what honors the "absent key → use the code
+ * default, so defaults can evolve without a backfill" contract — an unchanged or
+ * default-equal toggle is never frozen as an explicit override.
+ */
+export function packMemberPermissions(
+  perms: Record<ProjectCapability, boolean>,
+): string | null {
+  const delta: Partial<Record<ProjectCapability, boolean>> = {};
+  for (const c of PROJECT_CAPABILITIES) {
+    if (perms[c.key] !== c.defaultForMember) delta[c.key] = perms[c.key];
+  }
+  return Object.keys(delta).length ? JSON.stringify(delta) : null;
+}
+
 /**
  * Resolve a stored member_permissions JSON string into a complete capability
  * map: known boolean overrides win, everything else (unknown keys, bad types,

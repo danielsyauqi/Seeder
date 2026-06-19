@@ -36,6 +36,7 @@ import {
 import {
   assertProjectAdminister,
   assertProjectCapability,
+  assertProjectManage,
   optionalText,
   parseDate,
 } from "@/lib/services/_shared";
@@ -552,11 +553,10 @@ export async function setClientShareVisibility(
   showCommits: boolean;
 }> {
   const db = getDb();
-  const project = await assertProjectCapability(
-    viewer,
-    input.projectId,
-    "project.edit",
-  );
+  // Controls what the PUBLIC client share link exposes (board/description/
+  // commits) — NOT a member-delegatable "project.edit" metadata change. Keep it
+  // Leader-level, matching the other share controls (enable/rotate are owner-only).
+  const project = await assertProjectManage(viewer, input.projectId);
   const now = new Date();
 
   await db
@@ -708,6 +708,10 @@ export async function duplicateProject(
     status: sourceProject.status,
     deadline: sourceProject.deadline,
     archivedAt: null,
+    // Carry over the source's Member Access overrides so duplicating a
+    // locked-down project doesn't silently relax it back to the permissive
+    // code defaults.
+    memberPermissions: sourceProject.memberPermissions,
     // Same public-view default as a fresh project: board + commits, no full
     // task descriptions until opted in.
     clientShareShowDescription: false,

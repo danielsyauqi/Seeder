@@ -134,10 +134,14 @@ export async function canAccessProject(
  * Workspace owner/admin → "owner" (super-user); the project creator → "owner";
  * a project_members row → its stored role ("leader" | "member"); else null.
  */
-export async function getProjectRole(
+// Request-cached: a gated mutation (and bulk ops like setTaskCategory looping
+// over many tasks) checks the role repeatedly for the same (viewer, project);
+// cache() collapses those to one query per request, matching its siblings
+// getCompanySpaceIds / getProjectMemberPermissions.
+export const getProjectRole = cache(async (
   viewer: ViewerInput,
   projectId: string,
-): Promise<ProjectRole | null> {
+): Promise<ProjectRole | null> => {
   if (isAdminTier(viewer.role)) return "owner";
 
   const db = getDb();
@@ -169,7 +173,7 @@ export async function getProjectRole(
   }
 
   return null;
-}
+});
 
 /**
  * Leader-level authority: edit project details, manage labels/categories/notes,

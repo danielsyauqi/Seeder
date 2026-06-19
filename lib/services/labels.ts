@@ -5,10 +5,11 @@
 // the MCP server. Labels are reusable per-project tags (name + color), but
 // many-to-many: a task can carry several (vs. a single category). Membership
 // lives in the task_task_labels join table, so assigning/unassigning never
-// rewrites the task row. Authz mirrors categories: label definitions
-// (create/update/delete) are owner-only; assigning labels to tasks is
-// member-aware (canAccessProject), like setting a task's category. Like
-// categories, label changes are not written to the activity feed.
+// rewrites the task row. Authz mirrors categories: managing label definitions
+// (create/update/delete) needs the "taxonomy.manage" capability (owner/leader/
+// admin, or a member when the project enables it); assigning labels to tasks
+// needs "label.apply". Like categories, label changes are not written to the
+// activity feed.
 import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 

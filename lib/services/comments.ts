@@ -15,7 +15,7 @@ import { z } from "zod";
 import { logProjectActivity } from "@/lib/activity";
 import { diffChanges } from "@/lib/activity-diff";
 import { isAdminTier, type Viewer } from "@/lib/auth-server";
-import { canAccessProject, canProjectCapability } from "@/lib/authz";
+import { canAccessProject } from "@/lib/authz";
 import { getDb } from "@/lib/db";
 import {
   clientRequests,
@@ -30,7 +30,7 @@ import {
   richTextIsEmpty,
   richTextToPlainText,
 } from "@/lib/rich-text";
-import { touchProject } from "@/lib/services/_shared";
+import { assertProjectCapability, touchProject } from "@/lib/services/_shared";
 
 // --- Input schemas -----------------------------------------------------------
 
@@ -168,9 +168,7 @@ export async function createTaskComment(
   viewer: Viewer,
   input: AddTaskCommentInput,
 ): Promise<{ commentId: string; projectId: string }> {
-  if (!(await canProjectCapability(viewer, input.projectId, "comment.write"))) {
-    throw new Error("Not authorized.");
-  }
+  await assertProjectCapability(viewer, input.projectId, "comment.write");
   const db = getDb();
   const now = new Date();
   const content = normalizeComment(input.content);
@@ -223,9 +221,7 @@ export async function updateTaskComment(
   if (comment.authorId !== viewer.id) {
     throw new Error("You can only edit your own comment.");
   }
-  if (!(await canProjectCapability(viewer, comment.projectId, "comment.write"))) {
-    throw new Error("Not authorized.");
-  }
+  await assertProjectCapability(viewer, comment.projectId, "comment.write");
 
   const now = new Date();
   await db
@@ -267,9 +263,7 @@ export async function deleteTaskComment(
   if (comment.authorId !== viewer.id && !isAdminTier(viewer.role)) {
     throw new Error("You can only delete your own comment.");
   }
-  if (!(await canProjectCapability(viewer, comment.projectId, "comment.write"))) {
-    throw new Error("Not authorized.");
-  }
+  await assertProjectCapability(viewer, comment.projectId, "comment.write");
 
   await db.delete(taskComments).where(eq(taskComments.id, comment.id));
 
@@ -328,9 +322,7 @@ export async function createRequestComment(
   viewer: Viewer,
   input: AddRequestCommentInput,
 ): Promise<{ commentId: string; projectId: string }> {
-  if (!(await canProjectCapability(viewer, input.projectId, "comment.write"))) {
-    throw new Error("Not authorized.");
-  }
+  await assertProjectCapability(viewer, input.projectId, "comment.write");
   const db = getDb();
   const now = new Date();
   const content = normalizeComment(input.content);
@@ -388,9 +380,7 @@ export async function updateRequestComment(
   if (comment.authorId !== viewer.id) {
     throw new Error("You can only edit your own comment.");
   }
-  if (!(await canProjectCapability(viewer, comment.projectId, "comment.write"))) {
-    throw new Error("Not authorized.");
-  }
+  await assertProjectCapability(viewer, comment.projectId, "comment.write");
 
   const now = new Date();
   await db
@@ -432,9 +422,7 @@ export async function deleteRequestComment(
   if (comment.authorId !== viewer.id && !isAdminTier(viewer.role)) {
     throw new Error("You can only delete your own comment.");
   }
-  if (!(await canProjectCapability(viewer, comment.projectId, "comment.write"))) {
-    throw new Error("Not authorized.");
-  }
+  await assertProjectCapability(viewer, comment.projectId, "comment.write");
 
   await db.delete(requestComments).where(eq(requestComments.id, comment.id));
 
