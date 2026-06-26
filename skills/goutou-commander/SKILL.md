@@ -64,10 +64,12 @@ cat .goutou.json 2>/dev/null || echo "{}"
 
 调用 `create-task`（Seeder MCP）：
 ```
-projectId = coordProjectId
-title     = <需求摘要>
-description = （留空，分工详情写在首条评论里）
+projectId   = coordProjectId
+title       = <需求摘要>
+description = "repo:<仓库1> repo:<仓库2> repo:<仓库3>"
 ```
+
+**description 格式严格**：每个涉及仓库用 `repo:` 前缀、空格分隔（如 `repo:contract repo:sdk repo:dvt`）。这是工兵 P0 阶段 `search("repo:<ID>")` 能找到此任务的唯一依据——Seeder 只索引任务标题和描述，不索引评论。
 
 记录返回的 `taskId`。
 
@@ -122,25 +124,19 @@ labelIds = [所有涉及仓库对应的 labelId]
 
 <有依赖关系时说明推荐顺序，如：contract → sdk → app>
 
-## 涉及仓库（工兵搜索标记）
-
-repos: <用空格分隔的仓库ID列表，如: contract sdk dvt>
-
 ---
 *🧠 军师创建 · 等待各仓库工兵响应*
 ```
 
-> **注意**：最后的 `repos: <...>` 行是工兵（/goutou）在 P0 阶段用于搜索定位任务的关键字，必须保留，格式严格。
+> **注意**：搜索路由标记已写入 Step 3 的 task description（`repo:xxx` 格式），评论无需重复写。
 
 ### Step 7：更新本地配置（若 coordProjectId 是新发现的）
 
-若本次是通过搜索项目名找到协同中枢，且 `.goutou.json` 里没有 `coordProjectId`，自动写入：
+若本次是通过搜索项目名找到协同中枢，且 `.goutou.json` 里没有 `coordProjectId`：
 
-```bash
-# 读现有配置，合并 coordProjectId
-```
-
-用 Read + Write 工具更新 `.goutou.json`（保留已有字段）。
+1. 用 Read 工具读取 `.goutou.json`（若不存在则视为 `{}`）
+2. 合并 `coordProjectId` 字段
+3. 用 Write 工具写回（保留已有字段，不覆盖 `repoId`/`seederUrl` 等）
 
 ### Step 8：输出结果
 
@@ -157,7 +153,7 @@ repos: <用空格分隔的仓库ID列表，如: contract sdk dvt>
   cd /path/to/sdk && /goutou        # 单次响应
   cd /path/to/sdk && /loop 5m /goutou   # 定时轮询
 
-在 Seeder 查看完整进展：<seederUrl>/projects/<coordProjectId>
+在 Seeder 查看完整进展：<seederUrl>/projects/<coordProjectId>（若 .goutou.json 未配置 seederUrl 则省略此行）
 ```
 
 ## 错误处理

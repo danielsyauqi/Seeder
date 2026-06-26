@@ -63,13 +63,15 @@ query = "repo:<REPO_ID>"
 
 ### Step 3：逐个读取任务详情，判断是否需要响应
 
-对每个 hit，调用 `read-task`（projectId = coordProjectId，taskId = hit.id）。
+对每个 hit，并行执行两个调用：
+- `read-task`（projectId = coordProjectId，taskId = hit.id）→ 获取状态和描述
+- `list-task-comments`（projectId = coordProjectId，taskId = hit.id）→ 获取评论列表
 
 **跳过条件**（满足任一则跳过此任务）：
 1. `isTerminal = true`（任务已完结）
 2. 评论列表中已存在包含 `[repo:<REPO_ID>] 工兵回复` 的评论（避免重复响应）
 
-**待响应任务**：所有未被跳过的任务，记录到待响应列表。
+**待响应任务**：所有未被跳过的任务及其评论列表，记录到待响应列表。
 
 ### Step 4：分析并回复
 
@@ -77,7 +79,7 @@ query = "repo:<REPO_ID>"
 
 **Step 4a：理解分工**
 
-从任务评论中找到军师的首条分工评论（通常包含 `## 各仓库分工` 标题），提取 `### repo:<REPO_ID>` 段落下的分工说明。
+在 Step 3 已获取的评论列表中，找到军师的首条分工评论（通常包含 `## 各仓库分工` 标题），提取 `### repo:<REPO_ID>` 段落下的分工说明。
 
 **Step 4b：结合本仓库代码上下文分析**
 
