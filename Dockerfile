@@ -25,10 +25,14 @@ RUN bun install --production
 # compiles the Next.js standalone output, and bundles the migration script to
 # plain JS so the runtime stage needs no TypeScript tooling.
 #
+# Pinned to $BUILDPLATFORM so the heavy Next.js compile always runs natively
+# on the build host (e.g. arm64 on Apple Silicon) regardless of the target
+# platform.  The output is pure JS — not architecture-specific.
+#
 # Uses bun: bun.lock is the authoritative lockfile (package-lock.json is
 # stale and missing transitive deps such as esbuild).
 # ──────────────────────────────────────────────
-FROM oven/bun:1 AS builder
+FROM --platform=$BUILDPLATFORM oven/bun:1 AS builder
 
 WORKDIR /app
 

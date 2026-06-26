@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: seeder:local
+    image: mrtimothyduong/seeder:latest
     # SQLite is single-writer — do not scale this service.
     restart: unless-stopped
     ports:
