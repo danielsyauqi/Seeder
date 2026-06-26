@@ -38,9 +38,6 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-
 # vercel
 .vercel
 
@@ -59,8 +56,6 @@ next-env.d.ts
 # BETTER_AUTH_SECRET; .env* is already ignored above.
 ecosystem.config.cjs
 seeder.service
-Dockerfile
-docker-compose.yml
 Caddyfile
 DEPLOY-node.md
 /data/

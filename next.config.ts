@@ -36,6 +36,10 @@ const nextConfig: NextConfig = {
   // bundled into the Workers build — keep it external. (It's also on Next's
   // built-in auto-externalise list; this is belt-and-braces.)
   serverExternalPackages: ["@libsql/client"],
+  // Standalone output traces dependencies and produces a self-contained
+  // server.js — essential for a lean Docker runtime image. Only applied in
+  // node mode; the Cloudflare build uses opennextjs-cloudflare instead.
+  ...(process.env.RUNTIME === "node" ? { output: "standalone" } : {}),
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
