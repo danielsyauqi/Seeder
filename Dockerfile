@@ -68,6 +68,8 @@ ENV RUNTIME=node \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
+
 RUN addgroup --system --gid 1001 seeder && \
     adduser  --system --uid 1001 --ingroup seeder seeder
 
@@ -88,8 +90,9 @@ RUN chmod +x /entrypoint.sh
 
 RUN mkdir -p /app/data && chown seeder:seeder /app/data
 
-USER seeder
-
+# Entrypoint runs as root so it can fix /app/data ownership if the host
+# volume was created as root:root (common on Linux).  It drops to seeder
+# via gosu before running migrations or the server.
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
