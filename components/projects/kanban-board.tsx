@@ -1201,11 +1201,14 @@ export function KanbanBoard({
     );
   }
 
-  // Shared column-track classes: ~3 columns visible, the rest scroll
-  // horizontally; each column is shrink-0 so flex never squeezes them.
+  // Shared column-track classes: exactly 3 columns fill the width on first
+  // look; any extra statuses scroll horizontally. Each column is shrink-0 so
+  // flex never squeezes them, and basis grows to fill so 3 always span the
+  // track (no upper cap). The 17.5rem floor keeps columns readable on narrow
+  // viewports, where 3 then overflow into the horizontal scroll.
   const trackClass = "flex gap-4 overflow-x-auto pb-4 [scrollbar-gutter:stable]";
   const columnWidthClass =
-    "shrink-0 basis-[85%] sm:basis-[clamp(17.5rem,calc((100%-2rem)/3),22.5rem)]";
+    "shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%-2rem)/3))]";
 
   // Drag is only live on the full, owner-owned, unfiltered, non-preview board.
   const canDrag = !readOnly && !isFiltered && previewLimit == null;
