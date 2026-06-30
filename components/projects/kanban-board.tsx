@@ -7,11 +7,13 @@ import {
   DragEndEvent,
   DragStartEvent,
   PointerSensor,
+  pointerWithin,
   closestCorners,
   useDroppable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+import type { CollisionDetection } from "@dnd-kit/core";
 import {
   SortableContext,
   arrayMove,
@@ -169,6 +171,18 @@ function orderedColumns(
   }
   return result;
 }
+
+// Board collision strategy. `closestCorners` sums the distance to all four
+// corners of each droppable, so a TALL column (e.g. an empty status stretched
+// to match a column with dozens of cards) has its two far corners drag its
+// score down and it never wins — making empty columns impossible to drop into.
+// Pointer-based detection picks whatever droppable the cursor is actually
+// inside, regardless of its height, which is exactly what a board needs; we
+// only fall back to closestCorners when the pointer is in a gap between columns.
+const boardCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCorners(args);
+};
 
 // ---------------------------------------------------------------------------
 // Board search + filters (client-side, real-time). Replaces the old URL-driven
@@ -962,10 +976,13 @@ function SortableTaskColumn({
         items={items.map((task) => task.id)}
         strategy={verticalListSortingStrategy}
       >
-        {/* flex-1 so the card list (and the empty drop zone) fills the column,
-            making the whole column a drop target — drop into any status at any
-            row height without scrolling back to the top. */}
-        <div className="flex flex-1 flex-col space-y-3">{children}</div>
+        {/* flex-1 + min-h-0 + overflow-y-auto: the card list fills the column
+            and scrolls inside itself when it has more cards than fit. This keeps
+            every column the same (capped) height, so the empty drop zone stays
+            fully visible and reachable at any row. */}
+        <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto pr-1">
+          {children}
+        </div>
       </SortableContext>
     </section>
   );
@@ -996,10 +1013,11 @@ function StaticTaskColumn({
         className={cn(
           "space-y-3",
           // Capped-scroll mode (public board) keeps its own height; otherwise
-          // grow to fill so every column matches the tallest one's height.
+          // grow to fill the (capped) column and scroll cards internally so
+          // every column matches the tallest one's height.
           scroll
             ? "max-h-[36rem] overflow-y-auto pr-1"
-            : "flex flex-1 flex-col",
+            : "flex min-h-0 flex-1 flex-col overflow-y-auto pr-1",
         )}
       >
         {children}
@@ -1220,9 +1238,14 @@ export function KanbanBoard({
   // CSS (whitespace is required around `-`), which silently drops the basis and
   // collapses the columns. Tailwind turns the `_` into a real space.
   // `flex flex-col` lets the inner column section stretch to the track's
-  // shared (tallest-column) height so every drop zone fills its full column.
+  // shared height so every drop zone fills its full column. `max-h` caps that
+  // shared height to ~the viewport: a column with many cards scrolls inside
+  // itself instead of stretching the whole board to thousands of px (which also
+  // pushed empty columns out of reach for drag-and-drop). The calc spaces are
+  // mandatory — `calc(100dvh-16rem)` is invalid CSS; Tailwind turns `_` into a
+  // space.
   const columnWidthClass =
-    "flex flex-col shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%_-_2rem)/3))]";
+    "flex max-h-[calc(100dvh_-_16rem)] flex-col shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%_-_2rem)/3))]";
 
   // Drag is only live on the full, owner-owned, unfiltered, non-preview board.
   const canDrag = !readOnly && !isFiltered && previewLimit == null;
@@ -1316,7 +1339,7 @@ export function KanbanBoard({
       <DndContext
         id="kanban-board"
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={boardCollisionDetection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
