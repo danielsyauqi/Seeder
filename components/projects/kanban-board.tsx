@@ -953,7 +953,7 @@ function SortableTaskColumn({
     <section
       ref={setNodeRef}
       className={cn(
-        "rounded-md border border-border bg-surface/60 px-3 py-3 transition",
+        "flex h-full flex-col rounded-md border border-border bg-surface/60 px-3 py-3 transition",
         isOver && "border-border-strong bg-surface-strong",
       )}
     >
@@ -962,7 +962,10 @@ function SortableTaskColumn({
         items={items.map((task) => task.id)}
         strategy={verticalListSortingStrategy}
       >
-        <div className="space-y-3">{children}</div>
+        {/* flex-1 so the card list (and the empty drop zone) fills the column,
+            making the whole column a drop target — drop into any status at any
+            row height without scrolling back to the top. */}
+        <div className="flex flex-1 flex-col space-y-3">{children}</div>
       </SortableContext>
     </section>
   );
@@ -987,12 +990,16 @@ function StaticTaskColumn({
   count?: number;
 }) {
   return (
-    <section className="rounded-md border border-border bg-surface/60 px-3 py-3">
+    <section className="flex h-full flex-col rounded-md border border-border bg-surface/60 px-3 py-3">
       <ColumnHeader status={status} count={count ?? items.length} />
       <div
         className={cn(
           "space-y-3",
-          scroll && "max-h-[36rem] overflow-y-auto pr-1",
+          // Capped-scroll mode (public board) keeps its own height; otherwise
+          // grow to fill so every column matches the tallest one's height.
+          scroll
+            ? "max-h-[36rem] overflow-y-auto pr-1"
+            : "flex flex-1 flex-col",
         )}
       >
         {children}
@@ -1208,9 +1215,14 @@ export function KanbanBoard({
   // viewports, where 3 then overflow into the horizontal scroll.
   // The track hides its own (bottom) scrollbar; BoardScroll renders a synced
   // proxy bar above the board so the horizontal scrollbar sits at the top.
-  const trackClass = "board-scroll-hide flex gap-4 overflow-x-auto";
+  const trackClass = "board-scroll-hide flex items-stretch gap-4 overflow-x-auto";
+  // NOTE: the calc() spaces are mandatory — `calc((100%-2rem)/3)` is invalid
+  // CSS (whitespace is required around `-`), which silently drops the basis and
+  // collapses the columns. Tailwind turns the `_` into a real space.
+  // `flex flex-col` lets the inner column section stretch to the track's
+  // shared (tallest-column) height so every drop zone fills its full column.
   const columnWidthClass =
-    "shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%-2rem)/3))]";
+    "flex flex-col shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%_-_2rem)/3))]";
 
   // Drag is only live on the full, owner-owned, unfiltered, non-preview board.
   const canDrag = !readOnly && !isFiltered && previewLimit == null;
@@ -1285,7 +1297,7 @@ export function KanbanBoard({
                     ),
                   )
                 ) : (
-                  <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-[12px] leading-5 text-muted">
+                  <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border px-3 py-6 text-center text-[12px] leading-5 text-muted">
                     No tasks here yet
                   </div>
                 )}
@@ -1324,7 +1336,7 @@ export function KanbanBoard({
                     />
                   ))
                 ) : (
-                  <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-[12px] leading-5 text-muted">
+                  <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border px-3 py-6 text-center text-[12px] leading-5 text-muted">
                     Drop a task here
                   </div>
                 )}
