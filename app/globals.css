@@ -376,6 +376,20 @@ select:disabled {
   background-clip: padding-box;
 }
 
+/* Top-of-board horizontal scrollbar: the proxy bar reuses .board-scroll
+   styling but only scrolls horizontally; the real track hides its own bar. */
+.board-scroll-top {
+  overflow-y: hidden;
+}
+
+.board-scroll-hide {
+  scrollbar-width: none;
+}
+
+.board-scroll-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Surfaces */
 .surface-shadow {
   box-shadow:

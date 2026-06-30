@@ -8,6 +8,12 @@
   "observability": {
     "enabled": true
   },
+  // Per-request CPU ceiling (Workers Paid). Caps worst-case compute per request
+  // so a runaway invocation can't rack up CPU-time cost — it's killed instead.
+  // 30s is the Paid default; well above normal page renders (tens of ms).
+  "limits": {
+    "cpu_ms": 30000
+  },
   // App config is provided at runtime, never committed here:
   //   - locally via `.dev.vars` (copy `.dev.vars.example`)
   //   - in production via Worker vars/secrets (e.g. `wrangler secret put ...`)

@@ -30,7 +30,7 @@ import {
   MagnifyingGlass,
   X,
 } from "@phosphor-icons/react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useOptionalProjectWorkspaceUi } from "@/components/projects/project-workspace-ui";
 import { SearchSelect } from "@/components/ui/search-select";
@@ -1206,8 +1206,9 @@ export function KanbanBoard({
   // flex never squeezes them, and basis grows to fill so 3 always span the
   // track (no upper cap). The 17.5rem floor keeps columns readable on narrow
   // viewports, where 3 then overflow into the horizontal scroll.
-  const trackClass =
-    "board-scroll flex gap-4 overflow-x-auto pb-4 [scrollbar-gutter:stable]";
+  // The track hides its own (bottom) scrollbar; BoardScroll renders a synced
+  // proxy bar above the board so the horizontal scrollbar sits at the top.
+  const trackClass = "board-scroll-hide flex gap-4 overflow-x-auto";
   const columnWidthClass =
     "shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%-2rem)/3))]";
 
@@ -1250,7 +1251,7 @@ export function KanbanBoard({
     return (
       <div>
         {filterBar}
-        <div className={trackClass}>
+        <BoardScroll className={trackClass}>
           {orderedColumns(displayColumns, statuses).map(({ status, items }) => (
             <div key={status.id} className={columnWidthClass}>
               <StaticTaskColumn
@@ -1291,7 +1292,7 @@ export function KanbanBoard({
               </StaticTaskColumn>
             </div>
           ))}
-        </div>
+        </BoardScroll>
         {showMore}
       </div>
     );
@@ -1308,7 +1309,7 @@ export function KanbanBoard({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className={trackClass}>
+        <BoardScroll className={trackClass}>
           {orderedColumns(columns, statuses).map(({ status, items }) => (
             <div key={status.id} className={columnWidthClass}>
               <SortableTaskColumn status={status} items={items}>
@@ -1330,7 +1331,7 @@ export function KanbanBoard({
               </SortableTaskColumn>
             </div>
           ))}
-        </div>
+        </BoardScroll>
         <DragOverlay
           dropAnimation={{
             duration: 180,
@@ -1341,6 +1342,81 @@ export function KanbanBoard({
         </DragOverlay>
       </DndContext>
     </div>
+  );
+}
+
+/**
+ * Horizontal board scroller with the scrollbar moved to the TOP. A thin proxy
+ * bar is rendered above the board and scroll-synced both ways with the real
+ * track; the track hides its own (bottom) native bar. No CSS transform is used
+ * on the content, so dnd-kit drag coordinates stay correct.
+ */
+function BoardScroll({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const topRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const sync = () => {
+      if (spacerRef.current) {
+        spacerRef.current.style.width = `${track.scrollWidth}px`;
+      }
+      setOverflowing(track.scrollWidth - track.clientWidth > 1);
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(track);
+    // Observe columns too: their count/width drives scrollWidth, which a track
+    // border-box observer alone wouldn't catch.
+    for (const child of Array.from(track.children)) observer.observe(child);
+    return () => observer.disconnect();
+  }, [children]);
+
+  // Mirror scroll position both directions; only write when it actually differs
+  // so the two onScroll handlers don't feed back into each other.
+  const syncFromTop = useCallback(() => {
+    const top = topRef.current;
+    const track = trackRef.current;
+    if (top && track && track.scrollLeft !== top.scrollLeft) {
+      track.scrollLeft = top.scrollLeft;
+    }
+  }, []);
+  const syncFromTrack = useCallback(() => {
+    const top = topRef.current;
+    const track = trackRef.current;
+    if (top && track && top.scrollLeft !== track.scrollLeft) {
+      top.scrollLeft = track.scrollLeft;
+    }
+  }, []);
+
+  return (
+    <>
+      <div
+        ref={topRef}
+        onScroll={syncFromTop}
+        aria-hidden
+        className={cn(
+          // Fixed height seats the horizontal bar; without it the box collapses
+          // to the 1px spacer and the scrollbar gets clipped.
+          "board-scroll board-scroll-top mb-2 h-3 overflow-x-auto",
+          !overflowing && "hidden",
+        )}
+      >
+        <div ref={spacerRef} className="h-px" />
+      </div>
+      <div ref={trackRef} onScroll={syncFromTrack} className={className}>
+        {children}
+      </div>
+    </>
   );
 }
 
