@@ -26,6 +26,8 @@ import {
   convertRequestToTaskAction,
   deleteProjectAction,
   deleteTaskStatusUpdateAction,
+  loadRequestModalDetailAction,
+  loadTaskModalDetailAction,
   saveTaskStatusUpdateAction,
   updateProjectAction,
 } from "@/lib/actions";
@@ -46,7 +48,11 @@ import {
   updateTaskCommentAction,
 } from "@/lib/actions";
 import { formatRequestCode, formatTaskCode } from "@/lib/codes";
-import type { ProjectWorkspace } from "@/lib/data";
+import type {
+  ProjectWorkspace,
+  RequestModalDetail,
+  TaskModalDetail,
+} from "@/lib/data";
 import type { UserRole } from "@/lib/db/schema";
 import { CATEGORY_SWATCHES } from "@/lib/swatches";
 import { cn, withSearchParams } from "@/lib/utils";
@@ -82,7 +88,7 @@ type ProjectWorkspaceUiContextValue = {
 };
 
 type WorkspaceChecklistItem = Pick<
-  ProjectWorkspace["checklistItems"][number],
+  TaskModalDetail["checklistItems"][number],
   "id" | "taskId" | "content" | "isCompleted" | "sortOrder"
 >;
 
@@ -615,6 +621,15 @@ function ActionButton({
   );
 }
 
+function CommentsLoading() {
+  return (
+    <div className="flex items-center gap-2 text-sm text-muted">
+      <CircleNotch className="size-4 animate-spin" />
+      Loading comments…
+    </div>
+  );
+}
+
 function ModalShell({
   title,
   description,
@@ -698,6 +713,7 @@ function ProjectWorkspaceModalHost({
   const [, startRefreshTransition] = useTransition();
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const projectId = workspace.project.id;
   const selectedTask = modalState?.taskId
     ? workspace.tasks.find((task) => task.id === modalState.taskId) ?? null
     : null;
@@ -708,16 +724,70 @@ function ProjectWorkspaceModalHost({
   const linkedTask = selectedRequest
     ? workspace.tasks.find((task) => task.requestId === selectedRequest.id) ?? null
     : null;
-  const checklistItemsSeed: WorkspaceChecklistItem[] = selectedTask
-    ? workspace.checklistItems
-        .filter((item) => item.taskId === selectedTask.id)
-        .map((item) => ({
-          id: item.id,
-          taskId: item.taskId,
-          content: item.content,
-          isCompleted: item.isCompleted,
-          sortOrder: item.sortOrder,
-        }))
+
+  // Modal detail (full checklist, comment thread, latest status update) is loaded
+  // on demand when a modal opens — it's deliberately not in the workspace payload
+  // so the board/requests pages don't serialize every entity's comments and
+  // checklist into the client. `detailVersion` is bumped after a mutation to
+  // re-fetch the open modal's detail.
+  const [taskDetail, setTaskDetail] = useState<TaskModalDetail | null>(null);
+  const [requestDetail, setRequestDetail] = useState<RequestModalDetail | null>(
+    null,
+  );
+  const [detailVersion, setDetailVersion] = useState(0);
+  const bumpDetail = () => setDetailVersion((version) => version + 1);
+
+  const selectedTaskId = selectedTask?.id ?? null;
+  const selectedRequestId = selectedRequest?.id ?? null;
+
+  // `workspace` is in the deps so a server revalidation (e.g. a status-update
+  // save/delete that redirects back here) re-fetches the open modal's detail.
+  // Its identity is stable across client-only re-renders, so this doesn't
+  // re-fetch on unrelated local state changes.
+  useEffect(() => {
+    if (!selectedTaskId) {
+      setTaskDetail(null);
+      return;
+    }
+    let active = true;
+    loadTaskModalDetailAction(projectId, selectedTaskId)
+      .then((detail) => {
+        if (active) setTaskDetail(detail);
+      })
+      .catch(() => {
+        if (active) setTaskDetail(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId, selectedTaskId, detailVersion, workspace]);
+
+  useEffect(() => {
+    if (!selectedRequestId) {
+      setRequestDetail(null);
+      return;
+    }
+    let active = true;
+    loadRequestModalDetailAction(projectId, selectedRequestId)
+      .then((detail) => {
+        if (active) setRequestDetail(detail);
+      })
+      .catch(() => {
+        if (active) setRequestDetail(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId, selectedRequestId, detailVersion, workspace]);
+
+  const checklistItemsSeed: WorkspaceChecklistItem[] = taskDetail
+    ? taskDetail.checklistItems.map((item) => ({
+        id: item.id,
+        taskId: item.taskId,
+        content: item.content,
+        isCompleted: item.isCompleted,
+        sortOrder: item.sortOrder,
+      }))
     : [];
   const checklistItemsSeedKey = checklistItemsSeed
     .map(
@@ -730,10 +800,7 @@ function ProjectWorkspaceModalHost({
   );
   const [editingChecklistItemId, setEditingChecklistItemId] = useState<string | null>(null);
   const [editingChecklistContent, setEditingChecklistContent] = useState("");
-  const publishedUpdate = selectedTask
-    ? workspace.statusUpdates.find((update) => update.taskId === selectedTask.id) ??
-      null
-    : null;
+  const publishedUpdate = taskDetail?.publishedUpdate ?? null;
   const statusUpdateModalPath = selectedTask
     ? buildModalHref(currentPath, "status-update", {
         task: selectedTask.id,
@@ -762,6 +829,18 @@ function ProjectWorkspaceModalHost({
     startRefreshTransition(() => {
       router.refresh();
     });
+  }
+
+  // Wrap a comment action so the open modal's lazily-loaded detail is re-fetched
+  // after the mutation — revalidatePath only refreshes the server-rendered tree
+  // (board counts), not the client-side detail state.
+  function withDetailRefresh(
+    action: (formData: FormData) => Promise<void>,
+  ): (formData: FormData) => Promise<void> {
+    return async (formData: FormData) => {
+      await action(formData);
+      bumpDetail();
+    };
   }
 
   async function runWorkspaceMutation(
@@ -1352,10 +1431,9 @@ function ProjectWorkspaceModalHost({
         </form>
 
         <div className="mt-6 border-t border-border pt-5">
-          <CommentThread
-            comments={workspace.taskComments
-              .filter((c) => c.taskId === selectedTask.id)
-              .map((c) => ({
+          {taskDetail ? (
+            <CommentThread
+              comments={taskDetail.comments.map((c) => ({
                 id: c.id,
                 content: c.content,
                 authorId: c.authorId,
@@ -1364,16 +1442,19 @@ function ProjectWorkspaceModalHost({
                 createdAt: c.createdAt,
                 updatedAt: c.updatedAt,
               }))}
-            projectId={workspace.project.id}
-            parentId={selectedTask.id}
-            viewerId={viewer.id}
-            viewerCanModerate={viewerCanModerate}
-            actions={{
-              create: createTaskCommentAction,
-              update: updateTaskCommentAction,
-              remove: deleteTaskCommentAction,
-            }}
-          />
+              projectId={workspace.project.id}
+              parentId={selectedTask.id}
+              viewerId={viewer.id}
+              viewerCanModerate={viewerCanModerate}
+              actions={{
+                create: withDetailRefresh(createTaskCommentAction),
+                update: withDetailRefresh(updateTaskCommentAction),
+                remove: withDetailRefresh(deleteTaskCommentAction),
+              }}
+            />
+          ) : (
+            <CommentsLoading />
+          )}
         </div>
       </ModalShell>
     );
@@ -1439,6 +1520,9 @@ function ProjectWorkspaceModalHost({
         description="Write a short client-facing update for this completed task."
       >
         {canCommit ? (
+          !taskDetail ? (
+            <CommentsLoading />
+          ) : (
           <div className="grid gap-4">
             <div className="rounded-md border border-border bg-surface px-4 py-4">
               <div className="flex items-start gap-3">
@@ -1457,6 +1541,7 @@ function ProjectWorkspaceModalHost({
             </div>
 
             <StatusUpdateForm
+              key={publishedUpdate?.id ?? "new"}
               projectId={workspace.project.id}
               taskId={selectedTask.id}
               returnTo={statusUpdateModalPath}
@@ -1479,6 +1564,7 @@ function ProjectWorkspaceModalHost({
               </form>
             ) : null}
           </div>
+          )
         ) : (
           <div className="rounded-md border border-dashed border-border bg-background px-4 py-5 text-sm leading-6 text-muted">
             Only tasks in the <span className="font-semibold text-foreground">Done</span> column can be committed to the client log.
@@ -1757,10 +1843,9 @@ function ProjectWorkspaceModalHost({
         </form>
 
         <div className="mt-6 border-t border-border pt-5">
-          <CommentThread
-            comments={workspace.requestComments
-              .filter((c) => c.requestId === selectedRequest.id)
-              .map((c) => ({
+          {requestDetail ? (
+            <CommentThread
+              comments={requestDetail.comments.map((c) => ({
                 id: c.id,
                 content: c.content,
                 authorId: c.authorId,
@@ -1769,16 +1854,19 @@ function ProjectWorkspaceModalHost({
                 createdAt: c.createdAt,
                 updatedAt: c.updatedAt,
               }))}
-            projectId={workspace.project.id}
-            parentId={selectedRequest.id}
-            viewerId={viewer.id}
-            viewerCanModerate={viewerCanModerate}
-            actions={{
-              create: createRequestCommentAction,
-              update: updateRequestCommentAction,
-              remove: deleteRequestCommentAction,
-            }}
-          />
+              projectId={workspace.project.id}
+              parentId={selectedRequest.id}
+              viewerId={viewer.id}
+              viewerCanModerate={viewerCanModerate}
+              actions={{
+                create: withDetailRefresh(createRequestCommentAction),
+                update: withDetailRefresh(updateRequestCommentAction),
+                remove: withDetailRefresh(deleteRequestCommentAction),
+              }}
+            />
+          ) : (
+            <CommentsLoading />
+          )}
         </div>
       </ModalShell>
     );
