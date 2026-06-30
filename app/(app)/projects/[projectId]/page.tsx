@@ -44,12 +44,16 @@ export default async function ProjectOverviewPage({
     >
       <ProjectMetricsStrip workspace={workspace} />
 
-      <div className="grid gap-6 xl:grid-cols-[1.45fr_0.55fr]">
+      {/* minmax(0,…) is required: the board's flex track uses a percent-based
+          flex-basis on shrink-0 columns. A bare `1.45fr` track gives the grid
+          item `min-width:auto`, which lets that percentage run away to the
+          browser's max width. minmax(0,…) pins the min to 0 and breaks the loop. */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,0.55fr)]">
         <ProjectBoardSurface workspace={workspace} currentPath={currentPath} preview />
         <ProjectNotesSurface workspace={workspace} currentPath={currentPath} />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <ProjectOverviewQuickLinks projectId={projectId} />
         <ActivityFeed
           title="Recent activity"

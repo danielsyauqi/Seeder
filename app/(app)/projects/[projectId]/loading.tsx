@@ -7,7 +7,7 @@ export default function ProjectWorkspaceLoading() {
           <div key={index} className="ui-skeleton h-24" />
         ))}
       </div>
-      <div className="grid gap-4 xl:grid-cols-[1.45fr_0.55fr]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,0.55fr)]">
         <div className="ui-skeleton h-128" />
         <div className="ui-skeleton h-128" />
       </div>
