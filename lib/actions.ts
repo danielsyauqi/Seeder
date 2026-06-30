@@ -32,6 +32,12 @@ import {
   normalizeSlugInput,
   SLUG_MAX_LENGTH,
 } from "@/lib/codes";
+import {
+  getRequestModalDetail,
+  getTaskModalDetail,
+  type RequestModalDetail,
+  type TaskModalDetail,
+} from "@/lib/data";
 import { getDb } from "@/lib/db";
 import {
   createTaskCategory as createTaskCategoryService,
@@ -1523,6 +1529,28 @@ export async function deleteTaskCommentAction(formData: FormData) {
   const { projectId } = await deleteTaskCommentService(viewer, payload);
 
   if (projectId) revalidateProjectViews(projectId, { overview: true, board: true });
+}
+
+/**
+ * Load full detail (checklist, comments, latest status update) for a task modal
+ * on demand. Kept out of the workspace payload so the board/requests pages don't
+ * ship every task's comments + checklist to the client.
+ */
+export async function loadTaskModalDetailAction(
+  projectId: string,
+  taskId: string,
+): Promise<TaskModalDetail | null> {
+  const viewer = await requireViewer();
+  return getTaskModalDetail(viewer, projectId, taskId);
+}
+
+/** Load the comment thread for a request modal on demand. */
+export async function loadRequestModalDetailAction(
+  projectId: string,
+  requestId: string,
+): Promise<RequestModalDetail | null> {
+  const viewer = await requireViewer();
+  return getRequestModalDetail(viewer, projectId, requestId);
 }
 
 export async function createRequestCommentAction(formData: FormData) {

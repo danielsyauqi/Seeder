@@ -13,6 +13,7 @@ import {
   like,
   lt,
   or,
+  sql,
   type SQL,
 } from "drizzle-orm";
 import { cache } from "react";
@@ -1208,14 +1209,13 @@ export async function getProjectWorkspace(
   const [
     requests,
     boardTasks,
-    checklistItems,
-    statusUpdates,
+    checklistCountRows,
+    publishedUpdateRows,
     notes,
     activityRows,
     memberRows,
     ownerRow,
-    taskCommentRows,
-    requestCommentRows,
+    commentCountRows,
     categoryRows,
     labelRows,
     taskLabelRows,
@@ -1244,22 +1244,24 @@ export async function getProjectWorkspace(
       )
       .orderBy(asc(tasks.sortOrder), desc(tasks.updatedAt))
       .limit(2000),
+    // Per-task checklist counts only — the board shows "done/total"; the full
+    // items load lazily when a task modal opens (see getTaskModalDetail). This
+    // avoids serializing every checklist row into the client payload.
     db
-      .select()
+      .select({
+        taskId: taskChecklistItems.taskId,
+        total: count(),
+        done: sql<number>`sum(case when ${taskChecklistItems.isCompleted} then 1 else 0 end)`,
+      })
       .from(taskChecklistItems)
       .where(eq(taskChecklistItems.projectId, projectId))
-      .orderBy(
-        asc(taskChecklistItems.taskId),
-        asc(taskChecklistItems.sortOrder),
-        asc(taskChecklistItems.createdAt),
-      )
-      .limit(5000),
+      .groupBy(taskChecklistItems.taskId),
+    // Distinct task ids that have a published status update — the board only
+    // needs to know which tasks carry one; the update body loads lazily.
     db
-      .select()
+      .selectDistinct({ taskId: projectStatusUpdates.taskId })
       .from(projectStatusUpdates)
-      .where(eq(projectStatusUpdates.projectId, projectId))
-      .orderBy(desc(projectStatusUpdates.createdAt))
-      .limit(200),
+      .where(eq(projectStatusUpdates.projectId, projectId)),
     db
       .select()
       .from(projectNotes)
@@ -1306,38 +1308,17 @@ export async function getProjectWorkspace(
       .from(user)
       .where(eq(user.id, project.ownerId))
       .limit(1),
+    // Per-task comment counts only — the board shows a count badge; the comment
+    // bodies load lazily with the task modal. Request comments are not loaded
+    // here at all; they load with the request modal (getRequestModalDetail).
     db
       .select({
-        id: taskComments.id,
         taskId: taskComments.taskId,
-        content: taskComments.content,
-        authorId: taskComments.authorId,
-        authorName: user.name,
-        authorImage: user.image,
-        createdAt: taskComments.createdAt,
-        updatedAt: taskComments.updatedAt,
+        n: count(),
       })
       .from(taskComments)
-      .innerJoin(user, eq(user.id, taskComments.authorId))
       .where(eq(taskComments.projectId, projectId))
-      .orderBy(asc(taskComments.createdAt))
-      .limit(5000),
-    db
-      .select({
-        id: requestComments.id,
-        requestId: requestComments.requestId,
-        content: requestComments.content,
-        authorId: requestComments.authorId,
-        authorName: user.name,
-        authorImage: user.image,
-        createdAt: requestComments.createdAt,
-        updatedAt: requestComments.updatedAt,
-      })
-      .from(requestComments)
-      .innerJoin(user, eq(user.id, requestComments.authorId))
-      .where(eq(requestComments.projectId, projectId))
-      .orderBy(asc(requestComments.createdAt))
-      .limit(5000),
+      .groupBy(taskComments.taskId),
     db
       .select()
       .from(taskCategories)
@@ -1383,10 +1364,33 @@ export async function getProjectWorkspace(
     list.push({ id: row.id, name: row.name, color: row.color });
     labelsByTask.set(row.taskId, list);
   }
-  const tasksWithLabels = boardTasks.map((task) => ({
-    ...task,
-    labels: labelsByTask.get(task.id) ?? [],
-  }));
+  // Per-task aggregates for the board card badges. Full checklist items,
+  // comments, and status-update bodies are NOT in this payload — they load on
+  // demand when a modal opens (getTaskModalDetail / getRequestModalDetail), so
+  // we never serialize thousands of rows into the client just to render counts.
+  const checklistCountByTask = new Map(
+    checklistCountRows.map((row) => [
+      row.taskId,
+      { total: Number(row.total), done: Number(row.done ?? 0) },
+    ]),
+  );
+  const commentCountByTask = new Map(
+    commentCountRows.map((row) => [row.taskId, Number(row.n)]),
+  );
+  const publishedUpdateTaskIds = new Set(
+    publishedUpdateRows.map((row) => row.taskId),
+  );
+  const tasksWithLabels = boardTasks.map((task) => {
+    const counts = checklistCountByTask.get(task.id);
+    return {
+      ...task,
+      labels: labelsByTask.get(task.id) ?? [],
+      subtaskTotal: counts?.total ?? 0,
+      subtaskDone: counts?.done ?? 0,
+      commentCount: commentCountByTask.get(task.id) ?? 0,
+      hasStatusUpdate: publishedUpdateTaskIds.has(task.id),
+    };
+  });
   const activity = buildRecentActivity([project], activityRows, {
     includeArchived: true,
     limit: 8,
@@ -1416,18 +1420,121 @@ export async function getProjectWorkspace(
     currentBranchId,
     requests,
     tasks: tasksWithLabels,
-    checklistItems,
-    statusUpdates,
     notes,
     activity,
     members,
-    taskComments: taskCommentRows,
-    requestComments: requestCommentRows,
     categories: categoryRows,
     labels: labelRows,
     statuses: statusRows,
   };
 }
+
+/**
+ * Detail for an open task modal — full checklist items, comment thread, and the
+ * latest published status update. Loaded on demand (not in getProjectWorkspace)
+ * so the board/requests pages don't serialize every task's comments + checklist
+ * into the client payload. Returns null if the viewer can't access the project.
+ */
+export async function getTaskModalDetail(
+  viewer: ProjectViewer,
+  projectId: string,
+  taskId: string,
+) {
+  if (!(await canAccessProject(viewer, projectId))) return null;
+  const db = getDb();
+  const [checklistItems, comments, statusUpdateRows] = await Promise.all([
+    db
+      .select()
+      .from(taskChecklistItems)
+      .where(
+        and(
+          eq(taskChecklistItems.projectId, projectId),
+          eq(taskChecklistItems.taskId, taskId),
+        ),
+      )
+      .orderBy(
+        asc(taskChecklistItems.sortOrder),
+        asc(taskChecklistItems.createdAt),
+      ),
+    db
+      .select({
+        id: taskComments.id,
+        taskId: taskComments.taskId,
+        content: taskComments.content,
+        authorId: taskComments.authorId,
+        authorName: user.name,
+        authorImage: user.image,
+        createdAt: taskComments.createdAt,
+        updatedAt: taskComments.updatedAt,
+      })
+      .from(taskComments)
+      .innerJoin(user, eq(user.id, taskComments.authorId))
+      .where(
+        and(
+          eq(taskComments.projectId, projectId),
+          eq(taskComments.taskId, taskId),
+        ),
+      )
+      .orderBy(asc(taskComments.createdAt)),
+    db
+      .select()
+      .from(projectStatusUpdates)
+      .where(
+        and(
+          eq(projectStatusUpdates.projectId, projectId),
+          eq(projectStatusUpdates.taskId, taskId),
+        ),
+      )
+      .orderBy(desc(projectStatusUpdates.createdAt))
+      .limit(1),
+  ]);
+  return {
+    checklistItems,
+    comments,
+    publishedUpdate: statusUpdateRows[0] ?? null,
+  };
+}
+
+/**
+ * Detail for an open request modal — the comment thread. Loaded on demand for
+ * the same reason as getTaskModalDetail. Returns null if access is denied.
+ */
+export async function getRequestModalDetail(
+  viewer: ProjectViewer,
+  projectId: string,
+  requestId: string,
+) {
+  if (!(await canAccessProject(viewer, projectId))) return null;
+  const db = getDb();
+  const comments = await db
+    .select({
+      id: requestComments.id,
+      requestId: requestComments.requestId,
+      content: requestComments.content,
+      authorId: requestComments.authorId,
+      authorName: user.name,
+      authorImage: user.image,
+      createdAt: requestComments.createdAt,
+      updatedAt: requestComments.updatedAt,
+    })
+    .from(requestComments)
+    .innerJoin(user, eq(user.id, requestComments.authorId))
+    .where(
+      and(
+        eq(requestComments.projectId, projectId),
+        eq(requestComments.requestId, requestId),
+      ),
+    )
+    .orderBy(asc(requestComments.createdAt));
+  return { comments };
+}
+
+export type TaskModalDetail = NonNullable<
+  Awaited<ReturnType<typeof getTaskModalDetail>>
+>;
+export type RequestModalDetail = NonNullable<
+  Awaited<ReturnType<typeof getRequestModalDetail>>
+>;
 
 export async function getProjectsDashboardForViewer(
   viewer: ProjectViewer,

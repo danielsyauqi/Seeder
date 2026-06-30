@@ -174,15 +174,17 @@ export function ProjectBoardSurface({
   currentPath: string;
   preview?: boolean;
 }) {
-  const publishedTaskIds = new Set(
-    workspace.statusUpdates.map((update) => update.taskId),
-  );
   const boardKey = workspace.tasks
     .map(
       (task) =>
-        `${task.id}:${task.statusId}:${task.sortOrder}:${task.updatedAt.getTime()}:${publishedTaskIds.has(task.id)}`,
+        `${task.id}:${task.statusId}:${task.sortOrder}:${task.updatedAt.getTime()}:${task.hasStatusUpdate}`,
     )
     .join("|");
+  // Index requests by id so the per-task source-request lookup is O(1) instead
+  // of a linear scan inside the task map (O(tasks × requests)).
+  const requestsById = new Map(
+    workspace.requests.map((request) => [request.id, request]),
+  );
   const boardPath = `/projects/${workspace.project.id}/board`;
 
   return (
@@ -232,19 +234,12 @@ export function ProjectBoardSurface({
             (m) => m.userId === task.assigneeId,
           );
           const sourceRequest = task.requestId
-            ? workspace.requests.find((r) => r.id === task.requestId) ?? null
+            ? requestsById.get(task.requestId) ?? null
             : null;
-          const subtasks = workspace.checklistItems.filter(
-            (item) => item.taskId === task.id,
-          );
-          const commentCount = workspace.taskComments.filter(
-            (comment) => comment.taskId === task.id,
-          ).length;
           return {
             ...task,
             dueDate: task.dueDate ? task.dueDate.toISOString() : null,
             statusChangedAt: (task.statusChangedAt ?? task.createdAt)?.toISOString() ?? null,
-            hasStatusUpdate: publishedTaskIds.has(task.id),
             assigneeName: assignee?.name ?? null,
             code: formatTaskCode(workspace.project.slug, task.codeNumber),
             requestCode: sourceRequest
@@ -253,9 +248,6 @@ export function ProjectBoardSurface({
                   sourceRequest.codeNumber,
                 )
               : null,
-            subtaskTotal: subtasks.length,
-            subtaskDone: subtasks.filter((s) => s.isCompleted).length,
-            commentCount,
           };
         })}
       />
@@ -302,6 +294,19 @@ export function ProjectRequestsSurface({
 }: {
   workspace: ProjectWorkspace;
 }) {
+  // Index the linked task per request once (O(tasks)) instead of scanning the
+  // full task list inside the requests loop (O(requests × tasks)) — that
+  // quadratic scan was a render-time CPU hotspot on large projects.
+  const linkedTaskByRequest = new Map<
+    string,
+    (typeof workspace.tasks)[number]
+  >();
+  for (const task of workspace.tasks) {
+    if (task.requestId && !linkedTaskByRequest.has(task.requestId)) {
+      linkedTaskByRequest.set(task.requestId, task);
+    }
+  }
+
   return (
     <SectionFrame>
       <SectionHeader
@@ -326,8 +331,7 @@ export function ProjectRequestsSurface({
               workspace.project.slug,
               request.codeNumber,
             );
-            const linkedTask =
-              workspace.tasks.find((task) => task.requestId === request.id) ?? null;
+            const linkedTask = linkedTaskByRequest.get(request.id) ?? null;
             const linkedTaskCode = linkedTask
               ? formatTaskCode(workspace.project.slug, linkedTask.codeNumber)
               : null;
