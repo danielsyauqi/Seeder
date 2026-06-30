@@ -86,6 +86,14 @@ token as a `Bearer` header. A token can never do more than the user who created
 it, and every change shows in the Activity feed. Full tool list and setup:
 [seederpm.xyz/docs/mcp](https://seederpm.xyz/docs/mcp).
 
+## Forks in the wild
+
+Seeder is yours to fork — and people do. Community variants built on top of it:
+
+- **[goutou](https://github.com/jhfnetboy/goutou)** by [@jhfnetboy](https://github.com/jhfnetboy) — a Seeder variant that adds multi-repo Claude Code coordination skills (狗头军师): a "commander" dispatches work to a central board and per-repo "soldiers" pick it up over the MCP bus.
+
+Built your own variant? [Open an issue](https://github.com/danielsyauqi/Seeder/issues) or a PR adding it here.
+
 ## Support
 
 Hit a bug or have an idea? Open an issue on

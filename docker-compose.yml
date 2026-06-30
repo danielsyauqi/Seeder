@@ -1,0 +1,27 @@
+services:
+  seeder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/danielsyauqi/seeder:latest
+    # SQLite is single-writer — do not scale this service.
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      # Named volume keeps the SQLite DB and uploads across restarts.
+      - seeder_data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e",
+             "require('http').get('http://localhost:3000/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  seeder_data:
+    # Local named volume — do NOT switch this to NFS/network FS.
+    # SQLite file locking breaks over network filesystems.
