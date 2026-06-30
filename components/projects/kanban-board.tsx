@@ -1206,7 +1206,8 @@ export function KanbanBoard({
   // flex never squeezes them, and basis grows to fill so 3 always span the
   // track (no upper cap). The 17.5rem floor keeps columns readable on narrow
   // viewports, where 3 then overflow into the horizontal scroll.
-  const trackClass = "flex gap-4 overflow-x-auto pb-4 [scrollbar-gutter:stable]";
+  const trackClass =
+    "board-scroll flex gap-4 overflow-x-auto pb-4 [scrollbar-gutter:stable]";
   const columnWidthClass =
     "shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%-2rem)/3))]";
 

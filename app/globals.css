@@ -61,6 +61,7 @@
   --shadow-card-ring: rgba(0, 0, 0, 0.2) 0px 0px 0px 1px;
   --scrollbar-thumb: var(--gunmetal);
   --scrollbar-thumb-hover: var(--muted-ash);
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
   --modal-backdrop: rgba(0, 0, 0, 0.6);
   --badge-bg: var(--gunmetal);
   --badge-fg: var(--muted);
@@ -98,6 +99,7 @@
   --shadow-card-ring: rgba(15, 16, 17, 0.08) 0px 0px 0px 1px;
   --scrollbar-thumb: #d0d4d8;
   --scrollbar-thumb-hover: #b9bdc2;
+  --scrollbar-track: rgba(15, 16, 17, 0.06);
   --modal-backdrop: rgba(15, 16, 17, 0.45);
   --badge-bg: #ebedef;
   --badge-fg: #4a4e54;
@@ -335,6 +337,41 @@ select:disabled {
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+/*
+ * Board column track — always show the horizontal scrollbar lane (with a
+ * visible track) so users can tell when 4+ status columns overflow off-screen.
+ * The global bar above uses a transparent track and, on overlay-scrollbar OSes
+ * (macOS), stays hidden until you actively scroll — so the affordance is lost.
+ * A solid track forces a persistent, non-overlay bar in WebKit, and
+ * scrollbar-color does the same in Firefox. The bar only renders when content
+ * actually overflows, so the common 3-column (no-scroll) layout is unaffected.
+ */
+.board-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.board-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.board-scroll::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+.board-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.board-scroll::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   background-clip: padding-box;
 }
