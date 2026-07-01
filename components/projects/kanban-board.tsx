@@ -681,11 +681,12 @@ function TaskCardSurface({
   titleOnly?: boolean;
 }) {
   // Card body picks up a soft wash of the category color so tasks read like
-  // tinted index cards rather than identical rectangles. Done state halves
-  // the tint so the column feels muted. Falls back to plain bg-surface when
-  // there's no category color.
+  // tinted index cards rather than identical rectangles. Every column uses the
+  // same tint strength so a card reads identically in any status (Done cards
+  // used to be half-tinted, which made them look washed-out next to the rest).
+  // Falls back to plain bg-surface when there's no category color.
   const tintBase = task.categoryColor;
-  const tintPercent = task.isTerminal ? 5 : 10;
+  const tintPercent = 10;
   const cardStyle: React.CSSProperties | undefined = tintBase
     ? {
         backgroundColor: `color-mix(in srgb, ${tintBase} ${tintPercent}%, var(--surface))`,
@@ -804,7 +805,7 @@ function TaskCardSurface({
       {task.description ? (() => {
         const preview = richTextToPlainText(parseRichText(task.description));
         return preview ? (
-          <p className="mt-2.5 line-clamp-3 text-[13px] leading-6 text-muted">
+          <p className="mt-2.5 line-clamp-3 break-words text-[13px] leading-6 text-muted">
             {preview}
           </p>
         ) : null;
@@ -979,8 +980,14 @@ function SortableTaskColumn({
         {/* flex-1 + min-h-0 + overflow-y-auto: the card list fills the column
             and scrolls inside itself when it has more cards than fit. This keeps
             every column the same (capped) height, so the empty drop zone stays
-            fully visible and reachable at any row. */}
-        <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto pr-1">
+            fully visible and reachable at any row.
+            [contain:layout] is load-bearing: this scroller lives inside a flex
+            column whose height comes from `flex-1`/`max-height` (not a definite
+            height), and Chromium leaks such a nested scroller's layout-overflow
+            up to the page scroll container — so a tall column (e.g. 54 Done
+            cards) inflates the whole page to ~15000px of empty scroll. Layout
+            containment isolates the overflow so only the column scrolls. */}
+        <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto pr-1 [contain:layout]">
           {children}
         </div>
       </SortableContext>
@@ -1011,7 +1018,10 @@ function StaticTaskColumn({
       <ColumnHeader status={status} count={count ?? items.length} />
       <div
         className={cn(
-          "space-y-3",
+          // [contain:layout] isolates this scroller's overflow so a tall column
+          // scrolls internally instead of leaking its height to the page scroll
+          // container (see SortableTaskColumn for the full note).
+          "space-y-3 [contain:layout]",
           // Capped-scroll mode (public board) keeps its own height; otherwise
           // grow to fill the (capped) column and scroll cards internally so
           // every column matches the tallest one's height.
@@ -1242,10 +1252,15 @@ export function KanbanBoard({
   // shared height to ~the viewport: a column with many cards scrolls inside
   // itself instead of stretching the whole board to thousands of px (which also
   // pushed empty columns out of reach for drag-and-drop). The calc spaces are
-  // mandatory — `calc(100dvh-16rem)` is invalid CSS; Tailwind turns `_` into a
+  // mandatory — `calc(100dvh-12rem)` is invalid CSS; Tailwind turns `_` into a
   // space.
+  // `min-w-0` is required: without it a flex item's automatic minimum is its
+  // min-content width, so a card holding a long unbreakable token (e.g. a
+  // handover file path) forces that one column wider than its basis — the Done
+  // column rendered ~64px wider than the others. min-w-0 pins every column to
+  // its basis; the card text wraps via `break-words` instead of overflowing.
   const columnWidthClass =
-    "flex max-h-[calc(100dvh_-_16rem)] flex-col shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%_-_2rem)/3))]";
+    "flex min-w-0 max-h-[calc(100dvh_-_12rem)] flex-col shrink-0 basis-[85%] sm:basis-[max(17.5rem,calc((100%_-_2rem)/3))]";
 
   // Drag is only live on the full, owner-owned, unfiltered, non-preview board.
   const canDrag = !readOnly && !isFiltered && previewLimit == null;
