@@ -290,6 +290,38 @@ export async function getNextTaskSortOrder(
 }
 
 /**
+ * The sort order for a task that should land at the TOP of its column: one less
+ * than the current minimum. New tasks (web OR MCP) use this so the latest post
+ * always shows first — the board renders columns by `sortOrder ASC`. Drag
+ * reordering (which rewrites sortOrder = index) and status-move-to-bottom (which
+ * uses getNextTaskSortOrder) are unaffected. An empty column yields -1, and each
+ * subsequent create sits just above the previous one.
+ */
+export async function getTopTaskSortOrder(
+  projectId: string,
+  statusId: string,
+  branchId: string,
+) {
+  const db = getDb();
+  const [top] = await db
+    .select({
+      sortOrder: tasks.sortOrder,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.projectId, projectId),
+        eq(tasks.branchId, branchId),
+        eq(tasks.statusId, statusId),
+      ),
+    )
+    .orderBy(asc(tasks.sortOrder))
+    .limit(1);
+
+  return (top?.sortOrder ?? 0) - 1;
+}
+
+/**
  * The column a newly-created task lands in: the project's flagged initial status,
  * falling back to the lowest-sorted column. Replaces the old hardcoded "todo".
  * Throws if the project somehow has no statuses (corrupt data — every project is

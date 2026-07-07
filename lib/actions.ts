@@ -94,6 +94,7 @@ import { moveProjectToSpace as moveProjectToSpaceService } from "@/lib/services/
 import {
   assertProjectCapability,
   getProjectInitialStatus,
+  getTopTaskSortOrder,
   resolveDefaultBranchId,
 } from "@/lib/services/_shared";
 import { isValidProjectColor } from "@/lib/swatches";
@@ -351,29 +352,6 @@ async function loadProjectTask(taskId: string, projectId: string) {
   return task;
 }
 
-async function getNextTaskSortOrder(
-  projectId: string,
-  statusId: string,
-  branchId: string,
-) {
-  const db = getDb();
-  const [latest] = await db
-    .select({
-      sortOrder: tasks.sortOrder,
-    })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.projectId, projectId),
-        eq(tasks.branchId, branchId),
-        eq(tasks.statusId, statusId),
-      ),
-    )
-    .orderBy(desc(tasks.sortOrder))
-    .limit(1);
-
-  return (latest?.sortOrder ?? -1) + 1;
-}
 
 function toPayload(formData: FormData) {
   return Object.fromEntries(formData.entries());
@@ -1067,7 +1045,7 @@ export async function convertRequestToTaskAction(formData: FormData) {
     const branchId =
       request.branchId ?? (await resolveDefaultBranchId(payload.projectId));
     const initial = await getProjectInitialStatus(payload.projectId);
-    const sortOrder = await getNextTaskSortOrder(
+    const sortOrder = await getTopTaskSortOrder(
       payload.projectId,
       initial.statusId,
       branchId,
@@ -2027,7 +2005,7 @@ export async function createDailyTaskAction(formData: FormData) {
       const project = await assertProjectTaskAccess(viewer, projectId);
       const branchId = await resolveDefaultBranchId(projectId);
       const initial = await getProjectInitialStatus(projectId);
-      const sortOrder = await getNextTaskSortOrder(
+      const sortOrder = await getTopTaskSortOrder(
         projectId,
         initial.statusId,
         branchId,
@@ -2306,7 +2284,7 @@ export async function adminCreateDailyTaskForUsersAction(formData: FormData) {
     ) {
       const branchId = await resolveDefaultBranchId(project.id);
       const initial = await getProjectInitialStatus(project.id);
-      const sortOrder = await getNextTaskSortOrder(
+      const sortOrder = await getTopTaskSortOrder(
         project.id,
         initial.statusId,
         branchId,

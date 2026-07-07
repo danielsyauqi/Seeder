@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 
+import { BoardAutoRefresh } from "@/components/projects/board-auto-refresh";
 import {
   ProjectBoardSurface,
   ProjectMetricsStrip,
@@ -65,6 +66,10 @@ export default async function ProjectBoardPage({
       currentPath={currentPath}
       viewer={{ id: viewer.id, role: viewer.role }}
     >
+      <BoardAutoRefresh
+        projectId={workspace.project.id}
+        initialVersion={workspace.project.updatedAt?.getTime() ?? 0}
+      />
       <ProjectMetricsStrip workspace={workspace} />
       <ProjectBoardSurface workspace={workspace} currentPath={currentPath} />
     </ProjectWorkspaceClientShell>
