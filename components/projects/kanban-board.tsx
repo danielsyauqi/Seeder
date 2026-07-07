@@ -1182,9 +1182,11 @@ export function KanbanBoard({
       statusColor: destStatusMeta.color,
       isTerminal: destStatusMeta.isTerminal,
     };
+    // Dropped onto a specific card → land at that card's slot. Dropped onto the
+    // column body (no over-card) → default to the top of the column.
     const insertIndex = overTask
       ? destinationItems.findIndex((task) => task.id === overTask.id)
-      : destinationItems.length;
+      : 0;
 
     destinationItems.splice(Math.max(insertIndex, 0), 0, nextTask);
 
@@ -1431,21 +1433,31 @@ function BoardScroll({
     return () => observer.disconnect();
   }, [children]);
 
-  // Mirror scroll position both directions; only write when it actually differs
-  // so the two onScroll handlers don't feed back into each other.
+  // Mirror scroll position both directions. A single rAF-gated flag throttles to
+  // one sync per frame and swallows the reciprocal scroll event the write emits,
+  // so the two bars can't chase each other by sub-pixel rounding (the stutter).
+  const syncingRef = useRef(false);
   const syncFromTop = useCallback(() => {
+    if (syncingRef.current) return;
     const top = topRef.current;
     const track = trackRef.current;
-    if (top && track && track.scrollLeft !== top.scrollLeft) {
-      track.scrollLeft = top.scrollLeft;
-    }
+    if (!top || !track) return;
+    syncingRef.current = true;
+    track.scrollLeft = top.scrollLeft;
+    requestAnimationFrame(() => {
+      syncingRef.current = false;
+    });
   }, []);
   const syncFromTrack = useCallback(() => {
+    if (syncingRef.current) return;
     const top = topRef.current;
     const track = trackRef.current;
-    if (top && track && top.scrollLeft !== track.scrollLeft) {
-      top.scrollLeft = track.scrollLeft;
-    }
+    if (!top || !track) return;
+    syncingRef.current = true;
+    top.scrollLeft = track.scrollLeft;
+    requestAnimationFrame(() => {
+      syncingRef.current = false;
+    });
   }, []);
 
   return (
