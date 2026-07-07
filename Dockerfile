@@ -6,7 +6,7 @@
 # image to guarantee native packages like @libsql/client are present —
 # the Next.js standalone trace does not reliably follow native .node binaries.
 # ──────────────────────────────────────────────
-FROM node:20-slim AS prod-deps
+FROM node:24-slim AS prod-deps
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -22,7 +22,7 @@ RUN npm ci --omit=dev
 # on the build host (e.g. arm64 on Apple Silicon) regardless of the target
 # platform.  The output is pure JS — not architecture-specific.
 # ──────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM node:20 AS builder
+FROM --platform=$BUILDPLATFORM node:24 AS builder
 
 WORKDIR /app
 
@@ -49,7 +49,7 @@ RUN npx esbuild scripts/migrate-node.ts \
 # Stage 3: runtime
 # Minimal image — no bun, no npm, no build toolchain.
 # ──────────────────────────────────────────────
-FROM node:20-slim AS runtime
+FROM node:24-slim AS runtime
 
 ENV RUNTIME=node \
     PORT=3000 \
