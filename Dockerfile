@@ -5,19 +5,12 @@
 # Production-only install (no devDependencies).  Copied into the runtime
 # image to guarantee native packages like @libsql/client are present —
 # the Next.js standalone trace does not reliably follow native .node binaries.
-#
-# bun.lock is intentionally NOT copied here: the lockfile was generated on
-# macOS and bun on Linux wants to add Linux-specific optional packages,
-# which it treats as a lockfile violation.  A fresh resolution from
-# package.json alone is fine — bun resolves to the same versions because
-# package.json already pins exact or tight ranges, and no lockfile means
-# no frozen-lockfile enforcement.
 # ──────────────────────────────────────────────
-FROM oven/bun:1 AS prod-deps
+FROM node:20-slim AS prod-deps
 
 WORKDIR /app
-COPY package.json ./
-RUN bun install --production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 # ──────────────────────────────────────────────
 # Stage 2: builder
@@ -28,27 +21,24 @@ RUN bun install --production
 # Pinned to $BUILDPLATFORM so the heavy Next.js compile always runs natively
 # on the build host (e.g. arm64 on Apple Silicon) regardless of the target
 # platform.  The output is pure JS — not architecture-specific.
-#
-# Uses bun: bun.lock is the authoritative lockfile (package-lock.json is
-# stale and missing transitive deps such as esbuild).
 # ──────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM oven/bun:1 AS builder
+FROM --platform=$BUILDPLATFORM node:20 AS builder
 
 WORKDIR /app
 
-COPY package.json bun.lock ./
-RUN bun install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
 
 # RUNTIME=node activates output:standalone in next.config.ts and swaps in
 # the libSQL / local-disk adapters.
-RUN RUNTIME=node bunx next build --webpack
+RUN RUNTIME=node npx next build --webpack
 
 # Bundle the TypeScript migration script to a single CommonJS file.
 # @libsql/client is left external — it's a native module supplied by the
 # prod-deps stage rather than bundled.
-RUN bunx esbuild scripts/migrate-node.ts \
+RUN npx esbuild scripts/migrate-node.ts \
       --bundle \
       --platform=node \
       --format=cjs \

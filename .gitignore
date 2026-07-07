@@ -60,3 +60,6 @@ Caddyfile
 DEPLOY-node.md
 /data/
 /logs/
+
+# Repo is npm-only; a stray bun.lock breaks Cloudflare Workers Builds detection
+bun.lock
