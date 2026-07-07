@@ -24,6 +24,7 @@
   ],
   "scripts": {
     "dev": "next dev",
+    "dev:remote": "cross-env DEV_REMOTE=1 next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
     "setup": "tsx scripts/setup.ts",
@@ -35,6 +36,7 @@
     "test:watch": "vitest",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy -- --keep-vars",
+    "deploy:ci": "wrangler d1 migrations apply PM_DB --remote && opennextjs-cloudflare deploy -- --keep-vars",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "db:migrate:local": "wrangler d1 migrations apply PM_DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply PM_DB --remote",

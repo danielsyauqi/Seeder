@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // ⚠️  DANGER: local-dev-only config that points the D1 and R2 bindings at the
+  // REAL PRODUCTION resources via Cloudflare remote bindings. It is read ONLY by
+  // `npm run dev:remote` (which sets DEV_REMOTE=1; see next.config.ts). Plain
+  // `npm run dev` reads wrangler.jsonc, which has NO "remote" flags and stays
+  // fully local. This file is NEVER used for deploys.
+  //
+  // Every write you make while running `dev:remote` mutates production data and
+  // every upload lands in the production bucket. There is no separate staging
+  // D1/R2 — remote here == prod.
+  //
+  // KEEP IN SYNC with wrangler.jsonc: this must mirror its bindings, differing
+  // only by the added "remote": true on the D1/R2 entries.
+  "name": "seeder",
+  "compatibility_date": "2026-04-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "PM_DB",
+      "database_name": "seeder",
+      "database_id": "b9596b56-bb58-41be-bcf1-17e30426ec29",
+      "migrations_dir": "migrations",
+      "remote": true
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "seeder-uploads",
+      "remote": true
+    }
+  ]
+}

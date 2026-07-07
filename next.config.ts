@@ -6,7 +6,19 @@ import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 // wrangler and boots Miniflare, exactly the Cloudflare dependency node mode
 // eliminates. The default (unset) branch is unchanged for dev/cloudflare.
 if ((process.env.RUNTIME ?? "cloudflare") !== "node") {
-  initOpenNextCloudflareForDev();
+  // DEV_REMOTE=1 (set by `npm run dev:remote`) points the local dev D1 + R2
+  // bindings at the REAL production resources via Cloudflare remote bindings. It
+  // loads wrangler.remote.jsonc, whose D1/R2 entries carry "remote": true; the
+  // default wrangler.jsonc has no remote flags, so plain `npm run dev` stays
+  // fully local. remoteBindings defaults to true, so configPath alone is enough.
+  if (process.env.DEV_REMOTE === "1") {
+    initOpenNextCloudflareForDev({
+      configPath: "wrangler.remote.jsonc",
+      remoteBindings: true,
+    });
+  } else {
+    initOpenNextCloudflareForDev();
+  }
 }
 
 // Defense-in-depth response headers applied to every route. The public client
