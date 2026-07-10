@@ -91,6 +91,7 @@ import {
   renameBranch as renameBranchService,
 } from "@/lib/services/branches";
 import { moveProjectToSpace as moveProjectToSpaceService } from "@/lib/services/spaces";
+import { parseRepositoryUrl } from "@/lib/services/vcs/repo-url";
 import {
   createConnection as createVcsConnectionService,
   deleteConnection as deleteVcsConnectionService,
@@ -602,9 +603,7 @@ export async function deleteBranchAction(formData: FormData) {
 const vcsConnectionCreateSchema = z.object({
   projectId: z.string().min(1),
   provider: z.enum(vcsProviderValues),
-  baseUrl: z.string().trim().optional(),
-  owner: z.string().trim().min(1).max(200),
-  repo: z.string().trim().min(1).max(200),
+  repositoryUrl: z.string().trim().min(1),
   accessToken: z.string().trim().min(1),
   linkMode: z.enum(vcsLinkModeValues),
 });
@@ -622,22 +621,26 @@ const vcsConnectionRefSchema = z.object({
 
 export async function createVcsConnectionAction(formData: FormData) {
   const viewer = await requireViewer();
-  const raw = toPayload(formData);
-  const payload = vcsConnectionCreateSchema.parse({
-    ...raw,
-    // An empty base-URL field means "use the provider default" — the service
-    // schema treats missing/undefined that way, not "".
-    baseUrl: raw.baseUrl || undefined,
-  });
+  const payload = vcsConnectionCreateSchema.parse(toPayload(formData));
+
+  // Authoritative parse — the wizard already previews this client-side, but
+  // that's UX only; a direct call (or a stale client bundle) must still be
+  // rejected here rather than trusting a pre-split owner/repo/baseUrl.
+  const repo = parseRepositoryUrl(payload.repositoryUrl, payload.provider);
+  if (!repo) {
+    throw new Error(
+      "Paste a full repository link, e.g. https://github.com/owner/repo or https://gitlab.com/owner/repo.",
+    );
+  }
 
   const { connection, receiverUrl, webhookSecret } = await createVcsConnectionService(
     viewer,
     {
       projectId: payload.projectId,
       provider: payload.provider,
-      baseUrl: payload.baseUrl,
-      owner: payload.owner,
-      repo: payload.repo,
+      baseUrl: repo.baseUrl,
+      owner: repo.owner,
+      repo: repo.repo,
       accessToken: payload.accessToken,
       linkMode: payload.linkMode,
     },

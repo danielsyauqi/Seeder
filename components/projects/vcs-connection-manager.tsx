@@ -29,6 +29,7 @@ import {
 } from "@/lib/actions";
 import type { VcsLinkMode, VcsProvider } from "@/lib/db/schema";
 import type { VcsConnectionSummary } from "@/lib/services/vcs";
+import { detectProviderFromUrl, parseRepositoryUrl } from "@/lib/services/vcs/repo-url";
 import { toast } from "@/lib/toast";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -343,9 +344,7 @@ function ConnectWizard({
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [provider, setProvider] = useState<VcsProvider>("github");
-  const [baseUrl, setBaseUrl] = useState(providerConfig("github").defaultBaseUrl);
-  const [owner, setOwner] = useState("");
-  const [repo, setRepo] = useState("");
+  const [repositoryUrl, setRepositoryUrl] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [linkMode, setLinkMode] = useState<VcsLinkMode>("ticket");
   const [submitting, setSubmitting] = useState(false);
@@ -353,20 +352,17 @@ function ConnectWizard({
   const [created, setCreated] = useState<CreatedConnection | null>(null);
   const [copied, setCopied] = useState<"url" | "secret" | null>(null);
 
-  function selectProvider(next: VcsProvider) {
-    // Only reset the base URL if it still matches the previous provider's
-    // default — don't clobber a self-managed URL the user already typed.
-    const previousDefault = providerConfig(provider).defaultBaseUrl;
-    setBaseUrl((current) =>
-      current === previousDefault || current === ""
-        ? providerConfig(next).defaultBaseUrl
-        : current,
-    );
-    setProvider(next);
+  function handleRepositoryUrlChange(value: string) {
+    setRepositoryUrl(value);
+    // github.com/gitlab.com are unambiguous — self-managed hosts (GHE,
+    // self-hosted GitLab) can't be told apart by host alone, so leave the
+    // provider as-is and let the user pick explicitly for those.
+    const detected = detectProviderFromUrl(value);
+    if (detected) setProvider(detected);
   }
 
-  const step1Valid =
-    owner.trim().length > 0 && repo.trim().length > 0 && accessToken.trim().length > 0;
+  const parsedRepo = repositoryUrl.trim() ? parseRepositoryUrl(repositoryUrl, provider) : null;
+  const step1Valid = parsedRepo !== null && accessToken.trim().length > 0;
 
   async function handleCreate() {
     setSubmitting(true);
@@ -375,15 +371,7 @@ function ConnectWizard({
       const formData = new FormData();
       formData.set("projectId", projectId);
       formData.set("provider", provider);
-      // Omit when it's still the provider's cloud default — the service
-      // layer also normalizes this, but skipping it here avoids round-
-      // tripping a value that would just get dropped server-side anyway.
-      const trimmedBaseUrl = baseUrl.trim();
-      if (trimmedBaseUrl && trimmedBaseUrl !== config.defaultBaseUrl) {
-        formData.set("baseUrl", trimmedBaseUrl);
-      }
-      formData.set("owner", owner.trim());
-      formData.set("repo", repo.trim());
+      formData.set("repositoryUrl", repositoryUrl.trim());
       formData.set("accessToken", accessToken.trim());
       formData.set("linkMode", linkMode);
       const result = await createVcsConnectionAction(formData);
@@ -450,7 +438,7 @@ function ConnectWizard({
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => selectProvider(option.value)}
+                      onClick={() => setProvider(option.value)}
                       aria-pressed={selected}
                       className={cn(
                         "flex items-center gap-2 rounded-md border px-3 py-3 text-left transition",
@@ -467,42 +455,34 @@ function ConnectWizard({
               </div>
 
               <label className="grid gap-2">
-                <span className="text-sm font-medium text-foreground">Base URL</span>
-                <input
-                  value={baseUrl}
-                  onChange={(event) => setBaseUrl(event.target.value)}
-                  className="ui-input"
-                  placeholder={config.defaultBaseUrl}
-                />
-                <span className="text-[12px] text-muted">
-                  Only change this for a self-managed instance (GitHub Enterprise,
-                  self-hosted GitLab).
+                <span className="text-sm font-medium text-foreground">
+                  Repository URL
                 </span>
-              </label>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="grid gap-2">
-                  <span className="text-sm font-medium text-foreground">Owner</span>
-                  <input
-                    value={owner}
-                    onChange={(event) => setOwner(event.target.value)}
-                    className="ui-input"
-                    placeholder="acme-inc"
-                    autoFocus
-                  />
-                </label>
-                <label className="grid gap-2">
-                  <span className="text-sm font-medium text-foreground">
-                    Repository
+                <input
+                  value={repositoryUrl}
+                  onChange={(event) => handleRepositoryUrlChange(event.target.value)}
+                  className="ui-input"
+                  placeholder={`${config.defaultBaseUrl}/owner/repo`}
+                  autoFocus
+                />
+                {repositoryUrl.trim() && !parsedRepo ? (
+                  <span className="text-[12px] text-danger">
+                    Paste a full repository link, e.g. {config.defaultBaseUrl}/owner/repo
                   </span>
-                  <input
-                    value={repo}
-                    onChange={(event) => setRepo(event.target.value)}
-                    className="ui-input"
-                    placeholder="seeder"
-                  />
-                </label>
-              </div>
+                ) : parsedRepo ? (
+                  <span className="text-[12px] text-muted">
+                    {parsedRepo.owner}/{parsedRepo.repo}
+                    {parsedRepo.baseUrl !== config.defaultBaseUrl
+                      ? ` · self-managed at ${parsedRepo.baseUrl}`
+                      : ""}
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-muted">
+                    Works with self-managed instances too (GitHub Enterprise,
+                    self-hosted GitLab) — just paste the full URL.
+                  </span>
+                )}
+              </label>
 
               <label className="grid gap-2">
                 <span className="text-sm font-medium text-foreground">
