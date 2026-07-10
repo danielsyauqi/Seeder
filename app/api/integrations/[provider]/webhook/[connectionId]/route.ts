@@ -13,6 +13,7 @@ import { getDb } from "@/lib/db";
 import { ADAPTERS } from "@/lib/services/vcs/adapters";
 import { VCS_BOT_USER_ID } from "@/lib/services/vcs/constants";
 import {
+  deleteDeliveryRecord,
   ingest,
   insertDeliveryOrIgnore,
   isUuid,
@@ -70,6 +71,15 @@ export async function POST(request: Request, context: Ctx) {
     // create/delete, or an unrelated event) — still ack 202, not an error.
   } catch (error) {
     console.error("vcs ingest failed", error); // don't 500 the forge into disabling us
+    // Undo the dedup record we just wrote so a forge retry/manual
+    // "Redeliver" gets a fresh ingest attempt instead of being silently
+    // acked as a duplicate with no ingest ever re-attempted — ingest() is
+    // idempotent by commit sha, so re-running it is safe.
+    try {
+      await deleteDeliveryRecord(db, deliveryId);
+    } catch (cleanupError) {
+      console.error("vcs delivery cleanup failed", cleanupError);
+    }
   }
 
   return new Response("ok", { status: 202 });

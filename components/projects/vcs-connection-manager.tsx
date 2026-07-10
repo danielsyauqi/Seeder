@@ -375,7 +375,13 @@ function ConnectWizard({
       const formData = new FormData();
       formData.set("projectId", projectId);
       formData.set("provider", provider);
-      formData.set("baseUrl", baseUrl.trim());
+      // Omit when it's still the provider's cloud default — the service
+      // layer also normalizes this, but skipping it here avoids round-
+      // tripping a value that would just get dropped server-side anyway.
+      const trimmedBaseUrl = baseUrl.trim();
+      if (trimmedBaseUrl && trimmedBaseUrl !== config.defaultBaseUrl) {
+        formData.set("baseUrl", trimmedBaseUrl);
+      }
       formData.set("owner", owner.trim());
       formData.set("repo", repo.trim());
       formData.set("accessToken", accessToken.trim());

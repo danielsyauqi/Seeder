@@ -12,7 +12,7 @@
 // lib/services/vcs/backfill.ts both call `ingest`/`getDb` directly rather than
 // this module reaching into Workers-only globals.
 import type { BatchItem } from "drizzle-orm/batch";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { toActivityRow } from "@/lib/activity";
@@ -46,6 +46,14 @@ import { backfillConnection, type BackfillResult } from "@/lib/services/vcs/back
 import { VCS_BOT_USER_ID } from "@/lib/services/vcs/constants";
 import { parseTicketRefs, type TicketRef } from "@/lib/services/vcs/parse";
 import type { NormalizedEnvelope, VcsActor } from "@/lib/services/vcs/types";
+import { chunk } from "@/lib/utils";
+
+// D1 caps every statement (including each item inside db.batch) at 100 bound
+// parameters. These are floor(100 / columns-per-row) for the multi-row
+// inserts below — libsql (RUNTIME=node) and the local D1 simulator don't
+// enforce this, so it's silent until a deployed Workers request hits it.
+const COMMITS_INSERT_CHUNK = 7; // 13 columns/row
+const WORK_LINKS_INSERT_CHUNK = 11; // 9 columns/row
 
 type DbClient = ReturnType<typeof getDb>;
 type SystemActor = Extract<VcsActor, { kind: "system" }>;
@@ -54,10 +62,58 @@ type SystemActor = Extract<VcsActor, { kind: "system" }>;
 // Input schemas
 // ---------------------------------------------------------------------------
 
+// baseUrl is fetched server-side during backfill/"Sync now" with the
+// connection's decrypted PAT attached as an auth header (see
+// lib/services/vcs/backfill.ts apiBase()), so an unrestricted URL lets a
+// project admin turn the server into a credentialed SSRF probe against
+// internal services / cloud metadata endpoints. Require http(s) and reject
+// loopback/link-local/private/metadata hosts. (This is a format-level
+// guard, not DNS-rebinding-proof — it doesn't re-check the resolved IP at
+// fetch time — but it closes the direct-literal case, which is what the
+// wizard's freeform text input actually exposes.)
+function isDisallowedBaseUrlHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 brackets
+  if (host === "localhost" || host === "0.0.0.0" || host === "::1" || host === "::") return true;
+  if (host.endsWith(".localhost")) return true;
+
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const a = Number(ipv4[1]);
+    const b = Number(ipv4[2]);
+    if (a === 127) return true; // loopback
+    if (a === 10) return true; // private
+    if (a === 172 && b >= 16 && b <= 31) return true; // private
+    if (a === 192 && b === 168) return true; // private
+    if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata (169.254.169.254)
+    if (a === 0) return true;
+    return false;
+  }
+
+  // IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
+  if (/^fe[89ab][0-9a-f]:/.test(host) || /^f[cd][0-9a-f]{2}:/.test(host)) return true;
+
+  return false;
+}
+
 const optionalUrl = z
   .string()
   .trim()
   .url()
+  .refine(
+    (value) => {
+      let url: URL;
+      try {
+        url = new URL(value);
+      } catch {
+        return false;
+      }
+      return (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        !isDisallowedBaseUrlHost(url.hostname)
+      );
+    },
+    { message: "Base URL must be a public http(s) address." },
+  )
   .optional()
   .or(z.literal("").transform(() => undefined));
 
@@ -206,6 +262,25 @@ async function assertConnectionAdminister(
 // Connection CRUD
 // ---------------------------------------------------------------------------
 
+// The cloud default for each provider — apiBase() (lib/services/vcs/backfill.ts)
+// treats ANY non-null baseUrl as a self-managed instance and builds
+// `${baseUrl}/api/v3|v4`, which is wrong for github.com/gitlab.com (cloud API
+// is api.github.com / gitlab.com/api/v4, not github.com/api/v3). The wizard
+// pre-fills this exact string and always submits it, so normalize it away
+// here too (not just client-side) so MCP/direct callers get the same
+// treatment as "leave Base URL blank".
+const PROVIDER_DEFAULT_BASE_URL: Partial<Record<VcsProvider, string>> = {
+  github: "https://github.com",
+  gitlab: "https://gitlab.com",
+};
+
+function normalizeBaseUrl(provider: VcsProvider, baseUrl: string | undefined): string | null {
+  if (!baseUrl) return null;
+  const cloudDefault = PROVIDER_DEFAULT_BASE_URL[provider];
+  if (cloudDefault && baseUrl.replace(/\/$/, "") === cloudDefault) return null;
+  return baseUrl;
+}
+
 export async function createConnection(
   viewer: Viewer,
   rawInput: CreateConnectionInput,
@@ -217,6 +292,7 @@ export async function createConnection(
   const id = crypto.randomUUID();
   const webhookSecret = randomHex(32); // 64 hex chars
   const now = new Date();
+  const baseUrl = normalizeBaseUrl(input.provider, input.baseUrl);
 
   const [accessTokenEnc, webhookSecretEnc] = await Promise.all([
     encryptSecret(input.accessToken),
@@ -227,7 +303,7 @@ export async function createConnection(
     id,
     projectId: input.projectId,
     provider: input.provider,
-    baseUrl: input.baseUrl ?? null,
+    baseUrl,
     owner: input.owner,
     repo: input.repo,
     authType: "pat",
@@ -244,7 +320,7 @@ export async function createConnection(
     id,
     projectId: input.projectId,
     provider: input.provider,
-    baseUrl: input.baseUrl ?? null,
+    baseUrl,
     owner: input.owner,
     repo: input.repo,
     defaultBranch: null,
@@ -409,6 +485,19 @@ export async function insertDeliveryOrIgnore(
   return result.length > 0;
 }
 
+/**
+ * Removes a delivery id's dedup record so a forge redelivery gets a fresh
+ * ingest attempt instead of being acked as a no-op "duplicate". Call this
+ * when `ingest()` throws for a delivery you just recorded — `ingest()` is
+ * idempotent by commit sha, so re-running on retry/redelivery is safe, but
+ * leaving the delivery row in place would make a failed push permanently
+ * unrecoverable (the forge's automatic retries and manual "Redeliver" would
+ * all be swallowed by the dedup check with no ingest ever re-attempted).
+ */
+export async function deleteDeliveryRecord(db: DbClient, deliveryId: string): Promise<void> {
+  await db.delete(vcsDeliveries).where(eq(vcsDeliveries.deliveryId, deliveryId));
+}
+
 // ---------------------------------------------------------------------------
 // Ingest (spec §1.3 step-by-step)
 // ---------------------------------------------------------------------------
@@ -487,6 +576,7 @@ export async function ingest(
   ctx: SystemActor,
   connection: VcsConnection,
   envelope: NormalizedEnvelope,
+  opts: { suppressNotifications?: boolean } = {},
 ): Promise<{ commitsInserted: number }> {
   const [project] = await db
     .select({ slug: projects.slug })
@@ -521,7 +611,7 @@ export async function ingest(
     ? await db
         .select({ id: user.id, email: user.email })
         .from(user)
-        .where(inArray(user.email, authorEmails))
+        .where(inArray(sql`lower(${user.email})`, authorEmails.map((e) => e.toLowerCase())))
     : [];
   const userIdByEmail = new Map(authorRows.map((row) => [row.email.toLowerCase(), row.id]));
 
@@ -543,6 +633,15 @@ export async function ingest(
     refLastEventAt = new Date(envelope.pushTimestamp);
   }
 
+  // A delete always wins (a deletion can arrive with any timestamp and must
+  // still take effect). Otherwise, only a NEWER event may flip state back to
+  // "open"/clear deletedAt — a stale/out-of-order push processed after a
+  // delete (GitHub's dual push+delete delivery race, a webhook retry, or a
+  // backfill page racing a remote deletion) must not resurrect a branch
+  // that's actually gone, since no future event would ever correct it back.
+  const refState = isDelete ? "deleted" : isNewerEvent ? "open" : (existingRef?.state ?? "open");
+  const refDeletedAt = isDelete ? now : isNewerEvent ? null : (existingRef?.deletedAt ?? null);
+
   const statements: BatchItem<"sqlite">[] = [];
 
   if (existingRef) {
@@ -552,8 +651,8 @@ export async function ingest(
         .set({
           headSha: refHeadSha,
           lastEventAt: refLastEventAt,
-          state: isDelete ? "deleted" : "open",
-          deletedAt: isDelete ? now : null,
+          state: refState,
+          deletedAt: refDeletedAt,
           url: envelope.refUrl ?? existingRef.url,
           updatedAt: now,
         })
@@ -569,40 +668,45 @@ export async function ingest(
         refType: "branch",
         headSha: refHeadSha,
         lastEventAt: refLastEventAt,
-        state: isDelete ? "deleted" : "open",
+        state: refState,
         url: envelope.refUrl ?? null,
-        deletedAt: isDelete ? now : null,
+        deletedAt: refDeletedAt,
         updatedAt: now,
       }),
     );
   }
 
   // --- 3. Commit upserts (idempotent) -----------------------------------------
+  // Chunked to stay under D1's 100-bound-parameters-per-statement cap — a
+  // single unchunked multi-row insert would throw once an envelope carries
+  // >= 8 commits (13 params/row), which webhook pushes and backfill pages
+  // routinely do.
   if (envelope.commits.length) {
-    statements.push(
-      db
-        .insert(vcsCommits)
-        .values(
-          envelope.commits.map((c) => ({
-            id: idBySha.get(c.sha) ?? crypto.randomUUID(), // discarded on conflict
-            connectionId: connection.id,
-            projectId: connection.projectId,
-            sha: c.sha,
-            message: c.message,
-            authorName: c.authorName ?? null,
-            authorEmail: c.authorEmail ?? null,
-            authorUsername: c.authorUsername ?? null,
-            authorUserId: c.authorEmail
-              ? (userIdByEmail.get(c.authorEmail.toLowerCase()) ?? null)
-              : null,
-            url: c.url,
-            refName: envelope.ref,
-            committedAt: c.committedAt ? new Date(c.committedAt) : null,
-            createdAt: now,
-          })),
-        )
-        .onConflictDoNothing({ target: [vcsCommits.connectionId, vcsCommits.sha] }),
-    );
+    const commitRows = envelope.commits.map((c) => ({
+      id: idBySha.get(c.sha) ?? crypto.randomUUID(), // discarded on conflict
+      connectionId: connection.id,
+      projectId: connection.projectId,
+      sha: c.sha,
+      message: c.message,
+      authorName: c.authorName ?? null,
+      authorEmail: c.authorEmail ?? null,
+      authorUsername: c.authorUsername ?? null,
+      authorUserId: c.authorEmail
+        ? (userIdByEmail.get(c.authorEmail.toLowerCase()) ?? null)
+        : null,
+      url: c.url,
+      refName: envelope.ref,
+      committedAt: c.committedAt ? new Date(c.committedAt) : null,
+      createdAt: now,
+    }));
+    for (const rows of chunk(commitRows, COMMITS_INSERT_CHUNK)) {
+      statements.push(
+        db
+          .insert(vcsCommits)
+          .values(rows)
+          .onConflictDoNothing({ target: [vcsCommits.connectionId, vcsCommits.sha] }),
+      );
+    }
   }
 
   // --- 4. Linking, honoring connection.linkMode (skipped for branch_delete —
@@ -681,11 +785,13 @@ export async function ingest(
     }
   }
 
-  if (linkValues.length) {
+  // Chunked for the same D1 bound-parameter-cap reason as the commit insert
+  // above (9 columns/row).
+  for (const rows of chunk(linkValues, WORK_LINKS_INSERT_CHUNK)) {
     statements.push(
       db
         .insert(vcsWorkLinks)
-        .values(linkValues)
+        .values(rows)
         // The unique index dedupes overlap between a commit_msg link and an
         // inherited branch_name link for the same (commit, target) pair.
         .onConflictDoNothing({
@@ -731,7 +837,11 @@ export async function ingest(
   // --- 6. Notifications (spec §1.3 step 5 / §1.8) — outside the atomic batch;
   //        idempotent in practice because the webhook route's delivery dedup
   //        (and this function's own upsert idempotency) already gate replays.
-  if (notificationHead) {
+  //        Suppressed for backfill/history-import callers: since every
+  //        backfilled sha is "new" to ingest(), notifying would otherwise
+  //        fan out a "N commits pushed" notification to every project member
+  //        per backfill page for months-old history.
+  if (notificationHead && !opts.suppressNotifications) {
     const recipientIds = await getProjectRecipientIds(db, connection.projectId);
     const n = newCommits.length;
     const notificationInputs: NotificationInput[] = recipientIds.map((recipientId) => ({

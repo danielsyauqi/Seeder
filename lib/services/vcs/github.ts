@@ -68,10 +68,19 @@ type GitHubCommit = {
 type GitHubPushPayload = {
   ref: string;
   after: string;
+  deleted?: boolean;
   commits?: GitHubCommit[];
   head_commit?: GitHubCommit | null;
   repository?: { html_url?: string };
 };
+
+// GitHub sends a `push` event (deleted: true, after: 40 zeros, head_commit:
+// null) ALONGSIDE a separate `delete` event when a branch is removed — a
+// distinct delivery with its own delivery id, so the route's dedup-by-
+// delivery-id doesn't stop it. Without handling it here, that push would be
+// parsed as a normal push carrying a 40-zero head sha (see ZERO_SHA below,
+// matching gitlab.ts's constant of the same name/purpose).
+const ZERO_SHA = "0000000000000000000000000000000000000000";
 
 type GitHubCreateDeletePayload = {
   ref: string;
@@ -104,8 +113,18 @@ function parsePush(
   payload: GitHubPushPayload,
   provider: "github" | "gitea",
   deliveryId: string,
-): NormalizedEnvelope {
+): NormalizedEnvelope | null {
   const ref = normalizeRef(payload.ref);
+
+  // Branch-deletion push: GitHub also sends a `delete` event for this same
+  // branch removal (handled below in parseGitHubShapedPayload), so let that
+  // event own the lifecycle transition here rather than double-processing —
+  // returning null skips ingest() for this delivery, exactly like a
+  // non-branch create/delete or an unrecognized event.
+  if (payload.deleted === true || payload.after === ZERO_SHA) {
+    return null;
+  }
+
   return {
     provider,
     event: "push",

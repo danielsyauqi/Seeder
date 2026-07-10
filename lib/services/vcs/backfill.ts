@@ -14,10 +14,10 @@
 // (returns `degraded: true`, never throws) when the provider API is
 // unreachable or the PAT can't be decrypted — the connection keeps working via
 // webhook-only sync either way.
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
-import { vcsRefs, type VcsConnection } from "@/lib/db/schema";
+import { vcsCommits, vcsRefs, type VcsConnection } from "@/lib/db/schema";
 import { decryptSecret } from "@/lib/crypto/secrets";
 import { VCS_BOT_USER_ID } from "@/lib/services/vcs/constants";
 import { ingest } from "@/lib/services/vcs";
@@ -31,6 +31,19 @@ const PER_PAGE = 50;
 // limits regardless of how many branches the repo has.
 const MAX_PAGES_PER_INVOCATION = 5;
 const MAX_BRANCHES = 25;
+
+// `vcs_refs.backfill_cursor` stores a page number while the initial deep
+// history walk for a branch is still in progress, and this sentinel once
+// it's done. GitHub/GitLab's commit-list APIs page newest-first, so a
+// strictly-forward numeric cursor that never resets would walk past page 1
+// forever and could never see new commits again — including the truncated
+// tail of a >20-commit webhook push (GitHub caps push commits[] at 20; the
+// spec relies on backfill to heal that gap). Once the walk is DONE, every
+// subsequent backfill instead restarts at page 1 and walks forward only
+// until it hits a page of entirely-already-known shas (see `countKnownShas`
+// below) — the idempotent-upsert boundary above which there's nothing left
+// to heal.
+const DONE_CURSOR = "done";
 
 export type BackfillResult = {
   branchesSeen: number;
@@ -190,6 +203,23 @@ async function touchBackfillCursor(
     .where(and(eq(vcsRefs.connectionId, connection.id), eq(vcsRefs.name, branchName)));
 }
 
+/** How many of `shas` are already recorded for this connection — used to
+ * detect the "caught up" boundary once the initial deep walk is DONE, so a
+ * page-1-forward heal pass knows where to stop without re-walking the whole
+ * branch every time. */
+async function countKnownShas(
+  db: DbClient,
+  connectionId: string,
+  shas: string[],
+): Promise<number> {
+  if (!shas.length) return 0;
+  const rows = await db
+    .select({ sha: vcsCommits.sha })
+    .from(vcsCommits)
+    .where(and(eq(vcsCommits.connectionId, connectionId), inArray(vcsCommits.sha, shas)));
+  return rows.length;
+}
+
 /**
  * Runs a bounded backfill pass for one connection. Never throws — provider
  * outages / bad tokens degrade to `{ degraded: true }` so the caller (connect
@@ -236,7 +266,14 @@ export async function backfillConnection(
       .from(vcsRefs)
       .where(and(eq(vcsRefs.connectionId, connection.id), eq(vcsRefs.name, branchName)))
       .limit(1);
-    let page = existingRef?.backfillCursor ? Number(existingRef.backfillCursor) : 1;
+    const cursorValue = existingRef?.backfillCursor ?? null;
+    const deepWalkDone = cursorValue === DONE_CURSOR;
+
+    // While the initial full-history walk is still in progress, resume from
+    // the stored page. Once it's DONE, always restart at page 1 (the
+    // newest-first API's tip) so new commits and truncated-push gaps get
+    // healed on every sync — see the DONE_CURSOR comment above.
+    let page = deepWalkDone ? 1 : cursorValue ? Number(cursorValue) : 1;
     if (!Number.isFinite(page) || page < 1) page = 1;
 
     while (pagesFetched < MAX_PAGES_PER_INVOCATION) {
@@ -250,16 +287,39 @@ export async function backfillConnection(
       }
       pagesFetched += 1;
 
-      if (commits.length === 0) break;
+      if (commits.length === 0) {
+        await touchBackfillCursor(db, connection, branchName, DONE_CURSOR, new Date());
+        break;
+      }
+
+      // Once caught up, stop as soon as a page is entirely shas we already
+      // have — newest-first pagination means there's nothing further back
+      // left to heal, and idempotent upserts make it safe to check before
+      // ingesting rather than after.
+      if (deepWalkDone) {
+        const knownCount = await countKnownShas(
+          db,
+          connection.id,
+          commits.map((c) => c.sha),
+        );
+        if (knownCount === commits.length) break;
+      }
+
+      // Provider commit-list APIs return newest-first; reverse to
+      // oldest-first so ingest()'s `head = newCommits[newCommits.length -
+      // 1]` convention (which matches webhook push payload ordering) picks
+      // the newest commit of the page, not the oldest.
+      const orderedCommits = [...commits].reverse();
+      const head = orderedCommits[orderedCommits.length - 1];
 
       const envelope: NormalizedEnvelope = {
         provider: connection.provider,
         event: "push",
         deliveryId: `backfill:${connection.id}:${branchName}:${page}`,
         ref: branchName,
-        headSha: commits[0]?.sha,
-        pushTimestamp: commits[0]?.committedAt ?? Date.now(),
-        commits,
+        headSha: head?.sha,
+        pushTimestamp: head?.committedAt ?? Date.now(),
+        commits: orderedCommits,
       };
 
       await ingest(
@@ -267,11 +327,21 @@ export async function backfillConnection(
         { kind: "system", botUserId: VCS_BOT_USER_ID, projectId: connection.projectId },
         connection,
         envelope,
+        { suppressNotifications: true }, // history import — don't fan out "commits pushed" to every member
       );
       commitsIngested += commits.length;
-      await touchBackfillCursor(db, connection, branchName, String(page + 1), new Date());
 
-      if (commits.length < PER_PAGE) break; // reached the end of this branch's history
+      if (commits.length < PER_PAGE) {
+        // Reached the actual end of this branch's history.
+        await touchBackfillCursor(db, connection, branchName, DONE_CURSOR, new Date());
+        break;
+      }
+      if (!deepWalkDone) {
+        // Only persist forward progress while still doing the initial deep
+        // walk — once DONE, the cursor stays DONE and every sync restarts
+        // at page 1.
+        await touchBackfillCursor(db, connection, branchName, String(page + 1), new Date());
+      }
       page += 1;
     }
   }

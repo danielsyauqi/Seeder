@@ -1,5 +1,12 @@
 import { getDb } from "@/lib/db";
 import { notifications, type NotificationTone } from "@/lib/db/schema";
+import { chunk } from "@/lib/utils";
+
+// D1 caps every statement at 100 bound parameters; each notification row
+// binds 12 columns, so floor(100/12) = 8 rows/statement keeps a large
+// fan-out (e.g. VCS Sync's "N commits pushed" notify-all-members) from
+// throwing "too many SQL variables" in production.
+const NOTIFICATIONS_INSERT_CHUNK = 8;
 
 type DbClient = ReturnType<typeof getDb>;
 
@@ -48,5 +55,7 @@ export async function createNotifications(
 ) {
   const rows = inputs.filter((input) => !isSelf(input)).map(toNotificationRow);
   if (!rows.length) return;
-  await db.insert(notifications).values(rows);
+  for (const batch of chunk(rows, NOTIFICATIONS_INSERT_CHUNK)) {
+    await db.insert(notifications).values(batch);
+  }
 }

@@ -1525,6 +1525,7 @@ export async function getTaskModalDetail(
         .innerJoin(vcsCommits, eq(vcsCommits.id, vcsWorkLinks.gitEntityId))
         .where(
           and(
+            eq(vcsWorkLinks.projectId, projectId),
             eq(vcsWorkLinks.targetType, "task"),
             eq(vcsWorkLinks.targetId, taskId),
             eq(vcsWorkLinks.gitEntityType, "commit"),
@@ -1545,6 +1546,7 @@ export async function getTaskModalDetail(
         .innerJoin(vcsRefs, eq(vcsRefs.id, vcsWorkLinks.gitEntityId))
         .where(
           and(
+            eq(vcsWorkLinks.projectId, projectId),
             eq(vcsWorkLinks.targetType, "task"),
             eq(vcsWorkLinks.targetId, taskId),
             eq(vcsWorkLinks.gitEntityType, "ref"),

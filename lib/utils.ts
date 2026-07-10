@@ -32,6 +32,20 @@ export function safeReturnPath(
   return returnTo;
 }
 
+// Splits an array into fixed-size groups, preserving order. Used to keep
+// multi-row SQL inserts under D1's 100-bound-parameters-per-statement cap
+// (see lib/services/vcs.ts / lib/notifications.ts) — D1 enforces this limit
+// in production but neither libsql (RUNTIME=node) nor the local D1 simulator
+// do, so it's easy to miss without an explicit helper + call sites.
+export function chunk<T>(items: T[], size: number): T[][] {
+  if (size <= 0) throw new Error("chunk size must be > 0");
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
 export function withSearchParams(
   path: string,
   params: Record<string, string | null | undefined>,

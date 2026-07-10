@@ -643,6 +643,15 @@ export async function createVcsConnectionAction(formData: FormData) {
     },
   );
 
+  // Spec §1.5: backfill runs on connect as well as on "Sync now". Best-effort —
+  // a bad PAT or unreachable forge must not fail connection creation, and the
+  // webhook receiver keeps the connection healthy without it.
+  try {
+    await syncVcsConnectionService(viewer, { connectionId: connection.id });
+  } catch {
+    // degrade to webhook-only; the settings row's "Sync now" can retry
+  }
+
   revalidateProjectViews(payload.projectId, { settings: true, git: true });
 
   return { connection, receiverUrl, webhookSecret };
