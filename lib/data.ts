@@ -42,6 +42,7 @@ import {
   taskTaskLabels,
   tasks,
   user,
+  vcsCommits,
 } from "@/lib/db/schema";
 import { formatRequestCode, formatTaskCode } from "@/lib/codes";
 import { formatProjectStatus } from "@/lib/project-status";
@@ -763,6 +764,11 @@ function buildRecentActivity(
     detail: string | null;
     changes: ActivityChange[] | null;
     createdAt: Date;
+    // Only populated for entityType === "commit" (a leftJoin against
+    // vcs_commits on entityId — see the two callers' select()s). Other entity
+    // types leave this null/undefined since their entityId never matches a
+    // vcs_commits.id.
+    commitUrl?: string | null;
   }>,
   options: {
     includeArchived?: boolean;
@@ -789,6 +795,10 @@ function buildRecentActivity(
         href = getRequestHref(activity.projectId, activity.entityId);
       } else if (activity.entityType === "note") {
         href = getNoteHref(activity.projectId);
+      } else if (activity.entityType === "commit") {
+        // External absolute URL (the provider's commit page), not an
+        // internal route — see docs/vcs-sync-phase-0-1-spec.md §1.6.
+        href = activity.commitUrl ?? href;
       }
 
       return {
@@ -1059,9 +1069,14 @@ export async function getRecentActivityForUser(
       detail: projectActivity.detail,
       changes: projectActivity.changes,
       createdAt: projectActivity.createdAt,
+      // Only matches (and is only meaningful) for entityType === "commit" —
+      // entityId is a vcs_commits.id in that case, and any other entity's id
+      // space never collides with it. See buildRecentActivity.
+      commitUrl: vcsCommits.url,
     })
     .from(projectActivity)
     .leftJoin(user, eq(user.id, projectActivity.ownerId))
+    .leftJoin(vcsCommits, eq(vcsCommits.id, projectActivity.entityId))
     .where(and(...clauses))
     .orderBy(desc(projectActivity.createdAt))
     .limit(limit * 3);
@@ -1281,9 +1296,11 @@ export async function getProjectWorkspace(
         detail: projectActivity.detail,
         changes: projectActivity.changes,
         createdAt: projectActivity.createdAt,
+        commitUrl: vcsCommits.url,
       })
       .from(projectActivity)
       .leftJoin(user, eq(user.id, projectActivity.ownerId))
+      .leftJoin(vcsCommits, eq(vcsCommits.id, projectActivity.entityId))
       .where(eq(projectActivity.projectId, projectId))
       .orderBy(desc(projectActivity.createdAt))
       .limit(24),
@@ -2342,9 +2359,13 @@ export async function listProjectActivity(
       detail: projectActivity.detail,
       changes: projectActivity.changes,
       createdAt: projectActivity.createdAt,
+      // Only matches (and is only meaningful) for entityType === "commit" —
+      // entityId is a vcs_commits.id in that case. See §1.6.
+      commitUrl: vcsCommits.url,
     })
     .from(projectActivity)
     .leftJoin(user, eq(user.id, projectActivity.ownerId))
+    .leftJoin(vcsCommits, eq(vcsCommits.id, projectActivity.entityId))
     .where(and(...clauses))
     .orderBy(desc(projectActivity.createdAt))
     .limit(limit);
@@ -2357,6 +2378,8 @@ export async function listProjectActivity(
       href = getRequestHref(projectId, row.entityId);
     } else if (row.entityType === "note") {
       href = getNoteHref(projectId);
+    } else if (row.entityType === "commit") {
+      href = row.commitUrl ?? href;
     }
     return {
       id: row.id,

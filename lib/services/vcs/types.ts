@@ -28,7 +28,14 @@ export interface ProviderAdapter {
   sigHeader: string; // e.g. "x-gitea-signature"
   deliveryHeader: string; // e.g. "x-gitea-delivery"
   verify(rawBody: string, secret: string, headerSig: string): Promise<boolean>;
-  parse(headers: Headers, rawBody: string): NormalizedEnvelope;
+  // NOTE: widened to `| null` to match the actual contract implemented by
+  // github.ts/gitea (parseGitHubShapedPayload) and gitlab.ts (parse) — `null`
+  // means "this delivery has nothing for Seeder to ingest" (e.g. a tag
+  // create/delete, or an event other than push/create/delete). The webhook
+  // route (spec §1.4) treats `null` as "skip ingest(), still ack 202", not an
+  // error. Both adapter files were written in parallel and flagged this same
+  // reconciliation point; this is that reconciliation.
+  parse(headers: Headers, rawBody: string): NormalizedEnvelope | null;
 }
 
 // Actor context — discriminated union. The service branches on `kind`. The
