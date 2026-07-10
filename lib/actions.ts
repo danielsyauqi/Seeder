@@ -92,6 +92,12 @@ import {
 } from "@/lib/services/branches";
 import { moveProjectToSpace as moveProjectToSpaceService } from "@/lib/services/spaces";
 import {
+  createConnection as createVcsConnectionService,
+  deleteConnection as deleteVcsConnectionService,
+  syncNow as syncVcsConnectionService,
+  updateConnection as updateVcsConnectionService,
+} from "@/lib/services/vcs";
+import {
   assertProjectCapability,
   getProjectInitialStatus,
   getTopTaskSortOrder,
@@ -113,6 +119,8 @@ import {
   tasks,
   taskStatusValues,
   user,
+  vcsLinkModeValues,
+  vcsProviderValues,
 } from "@/lib/db/schema";
 import { parseRichText, richTextIsEmpty, richTextToPlainText } from "@/lib/rich-text";
 import { formatDateKey, parseDateKey } from "@/lib/daily";
@@ -381,6 +389,7 @@ function revalidateProjectViews(
     notes?: boolean;
     settings?: boolean;
     clientBoard?: boolean;
+    git?: boolean;
   } = {},
 ) {
   const basePath = `/projects/${projectId}`;
@@ -417,6 +426,10 @@ function revalidateProjectViews(
     // The public board is addressed by share token, not project id, so
     // revalidate the dynamic route itself.
     revalidatePath("/client/[token]", "page");
+  }
+
+  if (options.git) {
+    revalidatePath(`${basePath}/git`);
   }
 }
 
@@ -578,6 +591,97 @@ export async function deleteBranchAction(formData: FormData) {
   });
   revalidatePath(`/projects/${payload.projectId}/branches`);
   redirect(withFlash(`/projects/${payload.projectId}/branches`, "branch-deleted"));
+}
+
+// ---- VCS connections (Git integration, spec §1.7) ---------------------------
+// Return values (unlike the fire-and-forget branch actions above) so the
+// client-side setup wizard can capture the one-time webhook secret and the
+// connection-list UI can update in place — same convention as
+// createTaskCategoryAction / updateTaskCategoryAction.
+
+const vcsConnectionCreateSchema = z.object({
+  projectId: z.string().min(1),
+  provider: z.enum(vcsProviderValues),
+  baseUrl: z.string().trim().optional(),
+  owner: z.string().trim().min(1).max(200),
+  repo: z.string().trim().min(1).max(200),
+  accessToken: z.string().trim().min(1),
+  linkMode: z.enum(vcsLinkModeValues),
+});
+
+const vcsConnectionUpdateSchema = z.object({
+  projectId: z.string().min(1),
+  connectionId: z.string().min(1),
+  linkMode: z.enum(vcsLinkModeValues),
+});
+
+const vcsConnectionRefSchema = z.object({
+  projectId: z.string().min(1),
+  connectionId: z.string().min(1),
+});
+
+export async function createVcsConnectionAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const raw = toPayload(formData);
+  const payload = vcsConnectionCreateSchema.parse({
+    ...raw,
+    // An empty base-URL field means "use the provider default" — the service
+    // schema treats missing/undefined that way, not "".
+    baseUrl: raw.baseUrl || undefined,
+  });
+
+  const { connection, receiverUrl, webhookSecret } = await createVcsConnectionService(
+    viewer,
+    {
+      projectId: payload.projectId,
+      provider: payload.provider,
+      baseUrl: payload.baseUrl,
+      owner: payload.owner,
+      repo: payload.repo,
+      accessToken: payload.accessToken,
+      linkMode: payload.linkMode,
+    },
+  );
+
+  revalidateProjectViews(payload.projectId, { settings: true, git: true });
+
+  return { connection, receiverUrl, webhookSecret };
+}
+
+export async function updateVcsConnectionAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = vcsConnectionUpdateSchema.parse(toPayload(formData));
+
+  const connection = await updateVcsConnectionService(viewer, {
+    connectionId: payload.connectionId,
+    linkMode: payload.linkMode,
+  });
+
+  revalidateProjectViews(payload.projectId, { settings: true, git: true });
+
+  return connection;
+}
+
+export async function deleteVcsConnectionAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = vcsConnectionRefSchema.parse(toPayload(formData));
+
+  await deleteVcsConnectionService(viewer, { connectionId: payload.connectionId });
+
+  revalidateProjectViews(payload.projectId, { settings: true, git: true });
+}
+
+export async function syncVcsConnectionAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = vcsConnectionRefSchema.parse(toPayload(formData));
+
+  const result = await syncVcsConnectionService(viewer, {
+    connectionId: payload.connectionId,
+  });
+
+  revalidateProjectViews(payload.projectId, { settings: true, git: true });
+
+  return result;
 }
 
 export async function updateProjectAction(formData: FormData) {

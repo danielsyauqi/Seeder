@@ -43,6 +43,8 @@ import {
   tasks,
   user,
   vcsCommits,
+  vcsRefs,
+  vcsWorkLinks,
 } from "@/lib/db/schema";
 import { formatRequestCode, formatTaskCode } from "@/lib/codes";
 import { formatProjectStatus } from "@/lib/project-status";
@@ -1459,56 +1461,103 @@ export async function getTaskModalDetail(
 ) {
   if (!(await canAccessProject(viewer, projectId))) return null;
   const db = getDb();
-  const [checklistItems, comments, statusUpdateRows] = await Promise.all([
-    db
-      .select()
-      .from(taskChecklistItems)
-      .where(
-        and(
-          eq(taskChecklistItems.projectId, projectId),
-          eq(taskChecklistItems.taskId, taskId),
+  const [checklistItems, comments, statusUpdateRows, linkedCommits, linkedRefs] =
+    await Promise.all([
+      db
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.projectId, projectId),
+            eq(taskChecklistItems.taskId, taskId),
+          ),
+        )
+        .orderBy(
+          asc(taskChecklistItems.sortOrder),
+          asc(taskChecklistItems.createdAt),
         ),
-      )
-      .orderBy(
-        asc(taskChecklistItems.sortOrder),
-        asc(taskChecklistItems.createdAt),
-      ),
-    db
-      .select({
-        id: taskComments.id,
-        taskId: taskComments.taskId,
-        content: taskComments.content,
-        authorId: taskComments.authorId,
-        authorName: user.name,
-        authorImage: user.image,
-        createdAt: taskComments.createdAt,
-        updatedAt: taskComments.updatedAt,
-      })
-      .from(taskComments)
-      .innerJoin(user, eq(user.id, taskComments.authorId))
-      .where(
-        and(
-          eq(taskComments.projectId, projectId),
-          eq(taskComments.taskId, taskId),
-        ),
-      )
-      .orderBy(asc(taskComments.createdAt)),
-    db
-      .select()
-      .from(projectStatusUpdates)
-      .where(
-        and(
-          eq(projectStatusUpdates.projectId, projectId),
-          eq(projectStatusUpdates.taskId, taskId),
-        ),
-      )
-      .orderBy(desc(projectStatusUpdates.createdAt))
-      .limit(1),
-  ]);
+      db
+        .select({
+          id: taskComments.id,
+          taskId: taskComments.taskId,
+          content: taskComments.content,
+          authorId: taskComments.authorId,
+          authorName: user.name,
+          authorImage: user.image,
+          createdAt: taskComments.createdAt,
+          updatedAt: taskComments.updatedAt,
+        })
+        .from(taskComments)
+        .innerJoin(user, eq(user.id, taskComments.authorId))
+        .where(
+          and(
+            eq(taskComments.projectId, projectId),
+            eq(taskComments.taskId, taskId),
+          ),
+        )
+        .orderBy(asc(taskComments.createdAt)),
+      db
+        .select()
+        .from(projectStatusUpdates)
+        .where(
+          and(
+            eq(projectStatusUpdates.projectId, projectId),
+            eq(projectStatusUpdates.taskId, taskId),
+          ),
+        )
+        .orderBy(desc(projectStatusUpdates.createdAt))
+        .limit(1),
+      // Development panel (spec §1.7) — commits linked to this task via
+      // vcs_work_links (target_type='task'). Empty when the project has no VCS
+      // connection; no join guard needed since vcs_work_links only ever has
+      // rows once a connection ingests something.
+      db
+        .select({
+          id: vcsCommits.id,
+          sha: vcsCommits.sha,
+          message: vcsCommits.message,
+          authorName: vcsCommits.authorName,
+          authorUsername: vcsCommits.authorUsername,
+          url: vcsCommits.url,
+          committedAt: vcsCommits.committedAt,
+        })
+        .from(vcsWorkLinks)
+        .innerJoin(vcsCommits, eq(vcsCommits.id, vcsWorkLinks.gitEntityId))
+        .where(
+          and(
+            eq(vcsWorkLinks.targetType, "task"),
+            eq(vcsWorkLinks.targetId, taskId),
+            eq(vcsWorkLinks.gitEntityType, "commit"),
+          ),
+        )
+        .orderBy(desc(vcsCommits.committedAt)),
+      // Branches linked to this task (link mode 'branch' links the ref itself,
+      // spec §0). Separate from the internal `branches` entity — see vcsRefs.
+      db
+        .select({
+          id: vcsRefs.id,
+          name: vcsRefs.name,
+          state: vcsRefs.state,
+          url: vcsRefs.url,
+          headSha: vcsRefs.headSha,
+        })
+        .from(vcsWorkLinks)
+        .innerJoin(vcsRefs, eq(vcsRefs.id, vcsWorkLinks.gitEntityId))
+        .where(
+          and(
+            eq(vcsWorkLinks.targetType, "task"),
+            eq(vcsWorkLinks.targetId, taskId),
+            eq(vcsWorkLinks.gitEntityType, "ref"),
+          ),
+        )
+        .orderBy(desc(vcsRefs.updatedAt)),
+    ]);
   return {
     checklistItems,
     comments,
     publishedUpdate: statusUpdateRows[0] ?? null,
+    linkedCommits,
+    linkedRefs,
   };
 }
 

@@ -5,7 +5,9 @@ import {
 } from "@/components/projects/project-workspace";
 import { ProjectWorkspaceClientShell } from "@/components/projects/project-workspace-ui";
 import { requireViewer } from "@/lib/auth-server";
+import { canAdministerProject } from "@/lib/authz";
 import { getProjectWorkspace } from "@/lib/data";
+import { listConnections } from "@/lib/services/vcs";
 
 type ProjectSettingsPageProps = {
   params: Promise<{ projectId: string }>;
@@ -22,6 +24,11 @@ export default async function ProjectSettingsPage({
     notFound();
   }
 
+  const [canAdminister, vcsConnections] = await Promise.all([
+    canAdministerProject(viewer, projectId),
+    listConnections(viewer, projectId),
+  ]);
+
   const currentPath = `/projects/${projectId}/settings`;
 
   return (
@@ -30,7 +37,12 @@ export default async function ProjectSettingsPage({
       currentPath={currentPath}
       viewer={{ id: viewer.id, role: viewer.role }}
     >
-      <ProjectSettingsSurface workspace={workspace} currentPath={currentPath} />
+      <ProjectSettingsSurface
+        workspace={workspace}
+        currentPath={currentPath}
+        canAdminister={canAdminister}
+        vcsConnections={vcsConnections}
+      />
     </ProjectWorkspaceClientShell>
   );
 }

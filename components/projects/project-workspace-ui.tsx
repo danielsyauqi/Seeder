@@ -15,6 +15,7 @@ import {
   ArrowSquareOut,
   Check,
   CircleNotch,
+  GitBranch,
   GitCommit,
   Kanban,
   Plus,
@@ -1429,6 +1430,69 @@ function ProjectWorkspaceModalHost({
             </button>
           </div>
         </form>
+
+        {taskDetail &&
+        (taskDetail.linkedRefs.length > 0 || taskDetail.linkedCommits.length > 0) ? (
+          <div className="mt-6 border-t border-border pt-5">
+            <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
+              Development
+            </p>
+            <div className="mt-3 grid gap-2">
+              {taskDetail.linkedRefs.map((ref) => (
+                <div
+                  key={ref.id}
+                  className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2"
+                >
+                  <GitBranch className="size-4 shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground">
+                    {ref.name}
+                  </span>
+                  {ref.state === "deleted" ? (
+                    <span className="ui-badge shrink-0">Deleted</span>
+                  ) : null}
+                  {ref.url ? (
+                    <a
+                      href={ref.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 text-muted transition hover:text-foreground"
+                    >
+                      <ArrowSquareOut className="size-3.5" />
+                      <span className="sr-only">Open branch</span>
+                    </a>
+                  ) : null}
+                </div>
+              ))}
+              {taskDetail.linkedCommits.map((commit) => (
+                <div
+                  key={commit.id}
+                  className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2"
+                >
+                  <code className="shrink-0 rounded-sm border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] text-muted">
+                    {commit.sha.slice(0, 7)}
+                  </code>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+                    {commit.message?.split("\n")[0] || "(no commit message)"}
+                  </span>
+                  <span className="shrink-0 font-mono text-[11px] text-muted">
+                    {commit.authorUsername || commit.authorName || ""}
+                  </span>
+                  {commit.url ? (
+                    <a
+                      href={commit.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 text-muted transition hover:text-foreground"
+                    >
+                      <ArrowSquareOut className="size-3.5" />
+                      <span className="sr-only">Open commit</span>
+                    </a>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-6 border-t border-border pt-5">
           {taskDetail ? (

@@ -178,12 +178,55 @@ import {
   updateTaskStatus,
   updateTaskStatusInputSchema,
 } from "@/lib/services/tasks";
+import { listCommits, listCommitsForTask, listConnections } from "@/lib/services/vcs";
 import { PROJECT_SWATCHES } from "@/lib/swatches";
 
 function jsonResult(data: unknown) {
   // Compact (no indentation): every tool response goes through here, and pretty-
   // printing only adds whitespace tokens the agent never needs.
   return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
+}
+
+// Composes listCommits/listCommitsForTask with listConnections (spec §1.8) so
+// the model gets "no VCS connection" vs "connected, zero commits" as distinct,
+// explainable states instead of an ambiguous empty array. All three calls are
+// viewer-gated reads (canAccessProject) — never bypass authz here.
+async function listCommitsForMcp(
+  viewer: Viewer,
+  args: { projectId: string; taskId?: string; limit?: number },
+) {
+  const connections = await listConnections(viewer, args.projectId);
+  const rows = args.taskId
+    ? await listCommitsForTask(viewer, args.taskId)
+    : await listCommits(viewer, args.projectId, { limit: args.limit });
+  // listCommits applies the limit in-query; listCommitsForTask has no limit
+  // param (it returns every linked commit), so cap it here instead.
+  const commits = args.taskId && args.limit ? rows.slice(0, args.limit) : rows;
+
+  return {
+    hasConnection: connections.length > 0,
+    connections: connections.map((c) => ({
+      id: c.id,
+      provider: c.provider,
+      owner: c.owner,
+      repo: c.repo,
+      linkMode: c.linkMode,
+    })),
+    commits: commits.map((c) => ({
+      sha: c.sha,
+      message: c.message,
+      author: {
+        name: c.authorName,
+        email: c.authorEmail,
+        username: c.authorUsername,
+        userId: c.authorUserId,
+      },
+      committedAt: c.committedAt,
+      url: c.url,
+      ref: c.refName,
+      connectionId: c.connectionId,
+    })),
+  };
 }
 
 // Service functions throw plain Errors ("Project not found.", etc.); surface
@@ -508,6 +551,22 @@ function registerReadTools(server: McpServer, viewer: Viewer) {
       annotations: { readOnlyHint: true },
     },
     async (args) => jsonResult(await listStatusUpdates(viewer, args)),
+  );
+
+  server.registerTool(
+    "list-commits",
+    {
+      title: "List commits",
+      description:
+        "List VCS (GitHub/GitLab) commits synced into a project, newest first, capped at 200 (default 50). Pass taskId to see only the commits linked to that task (via ticket-code or branch-name linking) instead of every commit in the project. Always also returns the project's VCS connection(s) (provider/owner/repo/linkMode) and hasConnection, so you can tell whether an empty commits list means 'no VCS connection' or 'connected, nothing synced yet' rather than guessing. Returns hasConnection:false and empty lists if you can't access the project. Read-only.",
+      inputSchema: {
+        projectId: z.string(),
+        taskId: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => jsonResult(await listCommitsForMcp(viewer, args)),
   );
 }
 
