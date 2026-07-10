@@ -1,0 +1,61 @@
+{
+  "object_kind": "push",
+  "event_name": "push",
+  "before": "0000000000000000000000000000000000000000",
+  "after": "3d1a67376e5be2cc2672748cf5469ee9718b783e",
+  "ref": "refs/heads/feature/seeder-201-signup",
+  "ref_protected": false,
+  "checkout_sha": "3d1a67376e5be2cc2672748cf5469ee9718b783e",
+  "message": null,
+  "user_id": 4,
+  "user_name": "Priya Natarajan",
+  "user_username": "priyan",
+  "user_email": "priya@acme.example.com",
+  "user_avatar": "https://gitlab.example.com/uploads/-/system/user/avatar/4/avatar.png",
+  "project_id": 42,
+  "project": {
+    "id": 42,
+    "name": "seeder-demo",
+    "description": "Demo repository used for VCS Sync webhook fixtures.",
+    "web_url": "https://gitlab.com/acme/seeder-demo",
+    "avatar_url": null,
+    "git_ssh_url": "git@gitlab.com:acme/seeder-demo.git",
+    "git_http_url": "https://gitlab.com/acme/seeder-demo.git",
+    "namespace": "acme",
+    "visibility_level": 0,
+    "path_with_namespace": "acme/seeder-demo",
+    "default_branch": "main",
+    "ci_config_path": null,
+    "homepage": "https://gitlab.com/acme/seeder-demo",
+    "url": "git@gitlab.com:acme/seeder-demo.git",
+    "ssh_url": "git@gitlab.com:acme/seeder-demo.git",
+    "http_url": "https://gitlab.com/acme/seeder-demo.git"
+  },
+  "commits": [
+    {
+      "id": "3d1a67376e5be2cc2672748cf5469ee9718b783e",
+      "message": "SEEDER-201 add signup flow scaffolding",
+      "title": "SEEDER-201 add signup flow scaffolding",
+      "timestamp": "2026-07-09T08:45:10-07:00",
+      "url": "https://gitlab.com/acme/seeder-demo/-/commit/3d1a67376e5be2cc2672748cf5469ee9718b783e",
+      "author": {
+        "name": "Priya Natarajan",
+        "email": "priya@acme.example.com"
+      },
+      "added": ["app/signup/page.tsx"],
+      "modified": [],
+      "removed": []
+    }
+  ],
+  "total_commits_count": 1,
+  "push_options": {},
+  "repository": {
+    "name": "seeder-demo",
+    "url": "git@gitlab.com:acme/seeder-demo.git",
+    "description": "Demo repository used for VCS Sync webhook fixtures.",
+    "homepage": "https://gitlab.com/acme/seeder-demo",
+    "git_http_url": "https://gitlab.com/acme/seeder-demo.git",
+    "git_ssh_url": "git@gitlab.com:acme/seeder-demo.git",
+    "visibility_level": 0
+  }
+}

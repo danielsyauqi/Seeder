@@ -37,6 +37,23 @@ export const activityEntityValues = [
   "task",
   "note",
   "branch",
+  "commit",
+] as const;
+
+// VCS Sync (Phase 0/1) app-level enums. Kept alongside the other value lists
+// above; the matching DB CHECK constraints live in migrations/0038_vcs_core.sql.
+export const vcsProviderValues = ["gitea", "github", "gitlab"] as const;
+export const vcsAuthTypeValues = ["pat", "oauth", "github_app"] as const;
+export const vcsLinkModeValues = ["branch", "ticket"] as const;
+export const vcsSyncModeValues = ["webhook", "poll"] as const;
+export const vcsRefTypeValues = ["branch", "tag"] as const;
+export const vcsRefStateValues = ["open", "merged", "deleted"] as const;
+export const vcsWorkLinkTargetTypeValues = ["task", "request"] as const;
+export const vcsWorkLinkGitEntityTypeValues = ["commit", "ref"] as const;
+export const vcsWorkLinkSourceValues = [
+  "commit_msg",
+  "branch_name",
+  "manual",
 ] as const;
 
 export const activityActionValues = [
@@ -1025,6 +1042,193 @@ export const systemSettings = sqliteTable("system_settings", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
+// VCS Sync (Phase 0/1): connects a project to a GitHub/GitLab (Gitea later)
+// repo, syncing commits/branches in via webhook and linking them to
+// tasks/requests by ticket code. See docs/vcs-sync-phase-0-1-spec.md and
+// migrations/0038_vcs_core.sql for the full design/CHECK constraints.
+export const vcsConnections = sqliteTable(
+  "vcs_connections",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: vcsProviderValues }).notNull(),
+    // Base API/web URL for self-managed instances (GHE, self-hosted GitLab,
+    // Gitea). Null means the provider's public default (github.com/gitlab.com).
+    baseUrl: text("base_url"),
+    owner: text("owner").notNull(),
+    repo: text("repo").notNull(),
+    remoteRepoId: text("remote_repo_id"),
+    defaultBranch: text("default_branch"),
+    authType: text("auth_type", { enum: vcsAuthTypeValues })
+      .notNull()
+      .default("pat"),
+    // AES-GCM ciphertext (lib/crypto/secrets.ts), never plaintext at rest.
+    accessTokenEnc: text("access_token_enc").notNull(),
+    refreshTokenEnc: text("refresh_token_enc"),
+    accessTokenExpiresAt: integer("access_token_expires_at", {
+      mode: "timestamp_ms",
+    }),
+    webhookSecretEnc: text("webhook_secret_enc").notNull(),
+    keyVersion: integer("key_version").notNull().default(1),
+    // Per-connection link mode chosen in the setup wizard (rev 2 §0). 'branch'
+    // = branch-name linking inherits to every commit on the branch; 'ticket' =
+    // commits link only via codes in their own messages.
+    linkMode: text("link_mode", { enum: vcsLinkModeValues })
+      .notNull()
+      .default("ticket"),
+    syncMode: text("sync_mode", { enum: vcsSyncModeValues })
+      .notNull()
+      .default("webhook"),
+    lastReconciledAt: integer("last_reconciled_at", { mode: "timestamp_ms" }),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [index("vcs_connections_project_idx").on(table.projectId)],
+);
+
+// Webhook delivery dedup ledger. `deliveryId` is the provider's own header
+// value (x-github-delivery / x-gitlab-event-uuid), so a replayed delivery
+// short-circuits the webhook route before any ingest side effects run.
+export const vcsDeliveries = sqliteTable("vcs_deliveries", {
+  deliveryId: text("delivery_id").primaryKey(),
+  connectionId: text("connection_id")
+    .notNull()
+    .references(() => vcsConnections.id, { onDelete: "cascade" }),
+  receivedAt: integer("received_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+export const vcsCommits = sqliteTable(
+  "vcs_commits",
+  {
+    id: text("id").primaryKey(),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => vcsConnections.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sha: text("sha").notNull(),
+    message: text("message"),
+    authorName: text("author_name"),
+    authorEmail: text("author_email"),
+    authorUsername: text("author_username"),
+    // Resolved Seeder member by authorEmail, when one matches. Null falls back
+    // to VCS_BOT_USER_ID for activity attribution (lib/services/vcs/constants.ts).
+    authorUserId: text("author_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    url: text("url"),
+    refName: text("ref_name"),
+    committedAt: integer("committed_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    uniqueIndex("vcs_commits_conn_sha_idx").on(
+      table.connectionId,
+      table.sha,
+    ),
+    index("vcs_commits_project_time_idx").on(
+      table.projectId,
+      table.committedAt,
+    ),
+  ],
+);
+
+// A tracked remote branch/tag, deliberately separate from the internal
+// `branches` table (git-like workstreams, migration 0030) — this is metadata
+// about the real Git ref. Deleting the remote branch sets state='deleted' and
+// never cascades to tasks or the internal branches entity.
+export const vcsRefs = sqliteTable(
+  "vcs_refs",
+  {
+    id: text("id").primaryKey(),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => vcsConnections.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    refType: text("ref_type", { enum: vcsRefTypeValues })
+      .notNull()
+      .default("branch"),
+    headSha: text("head_sha"),
+    // Monotonic guard: only advance headSha when a newer push arrives, so an
+    // out-of-order/replayed webhook can't regress the head.
+    lastEventAt: integer("last_event_at", { mode: "timestamp_ms" }),
+    backfillCursor: text("backfill_cursor"),
+    backfilledAt: integer("backfilled_at", { mode: "timestamp_ms" }),
+    state: text("state", { enum: vcsRefStateValues })
+      .notNull()
+      .default("open"),
+    url: text("url"),
+    // Optional, non-destructive link to the internal branches entity. Never
+    // written to automatically in MVP; reserved for a future opt-in pairing.
+    seederBranchId: text("seeder_branch_id").references(() => branches.id, {
+      onDelete: "set null",
+    }),
+    deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    uniqueIndex("vcs_refs_conn_name_idx").on(table.connectionId, table.name),
+  ],
+);
+
+// Links a commit or ref to a task/request by ticket code. No FK onto
+// tasks/requests (target_id) — links are soft and pruned on entity delete
+// rather than cascaded, since a hard FK would need a polymorphic reference.
+export const vcsWorkLinks = sqliteTable(
+  "vcs_work_links",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => vcsConnections.id, { onDelete: "cascade" }),
+    targetType: text("target_type", {
+      enum: vcsWorkLinkTargetTypeValues,
+    }).notNull(),
+    targetId: text("target_id").notNull(),
+    gitEntityType: text("git_entity_type", {
+      enum: vcsWorkLinkGitEntityTypeValues,
+    }).notNull(),
+    gitEntityId: text("git_entity_id").notNull(),
+    linkSource: text("link_source", {
+      enum: vcsWorkLinkSourceValues,
+    }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    uniqueIndex("vcs_work_links_uniq_idx").on(
+      table.gitEntityType,
+      table.gitEntityId,
+      table.targetType,
+      table.targetId,
+    ),
+    index("vcs_work_links_target_idx").on(table.targetType, table.targetId),
+  ],
+);
+
 export type ProjectStatus = (typeof projectStatusValues)[number];
 export type RequestStatus = (typeof requestStatusValues)[number];
 export type TaskStatus = (typeof taskStatusValues)[number];
@@ -1058,3 +1262,19 @@ export type TaskLabel = typeof taskLabels.$inferSelect;
 export type TaskTaskLabel = typeof taskTaskLabels.$inferSelect;
 export type SystemSettings = typeof systemSettings.$inferSelect;
 export type PersonalAccessToken = typeof personalAccessToken.$inferSelect;
+
+export type VcsProvider = (typeof vcsProviderValues)[number];
+export type VcsAuthType = (typeof vcsAuthTypeValues)[number];
+export type VcsLinkMode = (typeof vcsLinkModeValues)[number];
+export type VcsSyncMode = (typeof vcsSyncModeValues)[number];
+export type VcsRefType = (typeof vcsRefTypeValues)[number];
+export type VcsRefState = (typeof vcsRefStateValues)[number];
+export type VcsWorkLinkTargetType = (typeof vcsWorkLinkTargetTypeValues)[number];
+export type VcsWorkLinkGitEntityType =
+  (typeof vcsWorkLinkGitEntityTypeValues)[number];
+export type VcsWorkLinkSource = (typeof vcsWorkLinkSourceValues)[number];
+export type VcsConnection = typeof vcsConnections.$inferSelect;
+export type VcsDelivery = typeof vcsDeliveries.$inferSelect;
+export type VcsCommit = typeof vcsCommits.$inferSelect;
+export type VcsRef = typeof vcsRefs.$inferSelect;
+export type VcsWorkLink = typeof vcsWorkLinks.$inferSelect;

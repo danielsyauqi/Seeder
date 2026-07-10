@@ -6,6 +6,7 @@ import { hashPassword } from "better-auth/crypto";
 import { requireRole } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { account, session, user, userRoleValues } from "@/lib/db/schema";
+import { VCS_BOT_USER_ID } from "@/lib/services/vcs/constants";
 
 type RouteParams = { params: Promise<{ userId: string }> };
 
@@ -152,6 +153,20 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const viewer = await requireRole(["owner", "admin"]);
   const { userId } = await params;
+
+  // The "Git integration" bot user (VCS Sync) is a permanent sentinel that
+  // project_activity.owner_id falls back to for commits from non-members —
+  // deleting it would orphan that FK. It has no `account` row, so it can
+  // never sign in and never needs the normal deactivate-then-delete flow.
+  if (userId === VCS_BOT_USER_ID) {
+    return Response.json(
+      {
+        error:
+          "This account is required by the Git integration and cannot be deleted.",
+      },
+      { status: 403 },
+    );
+  }
 
   if (userId === viewer.id) {
     return Response.json(
