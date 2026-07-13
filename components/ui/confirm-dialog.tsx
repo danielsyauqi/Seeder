@@ -89,7 +89,12 @@ export function ConfirmDialog({
             >
               {cancelLabel}
             </button>
+            {/* Focused on open so Enter confirms and Escape cancels. Focusing
+                the button (rather than listening for Enter on the window) keeps
+                Tab-to-Cancel honest: Enter always fires whichever button you
+                can actually see is focused. */}
             <button
+              autoFocus
               type="button"
               onClick={onConfirm}
               disabled={isPending}

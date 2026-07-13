@@ -429,7 +429,14 @@ function ConnectWizard({
           </div>
 
           {step === 1 ? (
-            <div className="grid gap-4">
+            <form
+              className="grid gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!step1Valid) return;
+                setStep(2);
+              }}
+            >
               <div className="grid grid-cols-2 gap-3">
                 {PROVIDERS.map((option) => {
                   const Icon = option.icon;
@@ -502,18 +509,24 @@ function ConnectWizard({
               {error ? <p className="text-[12px] text-danger">{error}</p> : null}
 
               <button
-                type="button"
+                type="submit"
                 disabled={!step1Valid}
-                onClick={() => setStep(2)}
                 className="ui-button-primary mt-1 w-full disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Continue
               </button>
-            </div>
+            </form>
           ) : null}
 
           {step === 2 ? (
-            <div className="grid gap-4">
+            <form
+              className="grid gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (submitting) return;
+                handleCreate();
+              }}
+            >
               <div className="grid gap-3">
                 {LINK_MODES.map((mode) => {
                   const selected = linkMode === mode.value;
@@ -552,9 +565,8 @@ function ConnectWizard({
                   Back
                 </button>
                 <button
-                  type="button"
+                  type="submit"
                   disabled={submitting}
-                  onClick={handleCreate}
                   className="ui-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {submitting ? (
@@ -563,7 +575,7 @@ function ConnectWizard({
                   {submitting ? "Connecting…" : "Connect repo"}
                 </button>
               </div>
-            </div>
+            </form>
           ) : null}
 
           {step === 3 && created && createdConfig ? (

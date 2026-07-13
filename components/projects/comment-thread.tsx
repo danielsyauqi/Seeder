@@ -169,8 +169,39 @@ function ComposeForm({
   const [resetKey, setResetKey] = useState(0);
   const [isPending, startTransition] = useTransition();
 
+  const post = () => {
+    if (isPending || richTextIsEmpty(doc)) return;
+    const formData = new FormData();
+    formData.set("projectId", projectId);
+    formData.set("parentId", parentId);
+    formData.set("content", serializeRichText(doc));
+    startTransition(async () => {
+      try {
+        await createAction(formData);
+        setDoc(parseRichText(null));
+        setResetKey((k) => k + 1);
+        toast("Comment posted", "success");
+      } catch (error: unknown) {
+        toast(
+          error instanceof Error ? error.message : "Could not post comment",
+          "danger",
+        );
+      }
+    });
+  };
+
   return (
-    <div className="grid gap-2 rounded-md border border-border bg-surface p-3">
+    // Enter inserts a newline in the editor (it's rich text — paragraphs,
+    // lists, pasted screenshots), so Cmd/Ctrl+Enter is the post shortcut.
+    <div
+      className="grid gap-2 rounded-md border border-border bg-surface p-3"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          post();
+        }
+      }}
+    >
       <span className="font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
         Add comment
       </span>
@@ -183,30 +214,12 @@ function ComposeForm({
       />
       <button
         type="button"
-        onClick={() => {
-          if (richTextIsEmpty(doc)) return;
-          const formData = new FormData();
-          formData.set("projectId", projectId);
-          formData.set("parentId", parentId);
-          formData.set("content", serializeRichText(doc));
-          startTransition(async () => {
-            try {
-              await createAction(formData);
-              setDoc(parseRichText(null));
-              setResetKey((k) => k + 1);
-              toast("Comment posted", "success");
-            } catch (error: unknown) {
-              toast(
-                error instanceof Error ? error.message : "Could not post comment",
-                "danger",
-              );
-            }
-          });
-        }}
+        onClick={post}
         disabled={isPending || richTextIsEmpty(doc)}
         className={cn(
           "ui-button-primary self-end px-4 disabled:cursor-not-allowed disabled:opacity-60",
         )}
+        title="Post comment (⌘/Ctrl + Enter)"
       >
         {isPending ? <CircleNotch className="size-4 animate-spin" /> : null}
         {isPending ? "Posting…" : "Comment"}
@@ -284,8 +297,42 @@ function CommentEditForm({
   const [doc, setDoc] = useState<RichTextDoc>(parseRichText(comment.content));
   const [isPending, startTransition] = useTransition();
 
+  const save = () => {
+    if (isPending || richTextIsEmpty(doc)) return;
+    const formData = new FormData();
+    formData.set("commentId", comment.id);
+    formData.set("content", serializeRichText(doc));
+    startTransition(async () => {
+      try {
+        await updateAction(formData);
+        toast("Comment updated", "success");
+        onDone();
+      } catch (error: unknown) {
+        toast(
+          error instanceof Error ? error.message : "Could not update comment",
+          "danger",
+        );
+      }
+    });
+  };
+
   return (
-    <div className="grid gap-2">
+    // Enter is a newline in the editor, so Cmd/Ctrl+Enter saves and Escape
+    // backs out — the same pair the composer above uses.
+    <div
+      className="grid gap-2"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          save();
+          return;
+        }
+        if (event.key === "Escape" && !isPending) {
+          event.preventDefault();
+          onCancel();
+        }
+      }}
+    >
       <RichTextEditor
         value={comment.content}
         onChange={setDoc}
@@ -302,28 +349,10 @@ function CommentEditForm({
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (richTextIsEmpty(doc)) return;
-            const formData = new FormData();
-            formData.set("commentId", comment.id);
-            formData.set("content", serializeRichText(doc));
-            startTransition(async () => {
-              try {
-                await updateAction(formData);
-                toast("Comment updated", "success");
-                onDone();
-              } catch (error: unknown) {
-                toast(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not update comment",
-                  "danger",
-                );
-              }
-            });
-          }}
+          onClick={save}
           disabled={isPending || richTextIsEmpty(doc)}
           className="ui-button-primary px-4 disabled:cursor-not-allowed disabled:opacity-60"
+          title="Save (⌘/Ctrl + Enter)"
         >
           {isPending ? <CircleNotch className="size-4 animate-spin" /> : null}
           {isPending ? "Saving…" : "Save"}

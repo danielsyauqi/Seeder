@@ -281,8 +281,21 @@ export function AssignItemModal({
                     setPickerOpen(true);
                   }}
                   onFocus={() => setPickerOpen(true)}
+                  // Enter must never reach the surrounding assign form, which
+                  // would submit it before anyone had been picked. Swallow it
+                  // and add the top match instead.
                   onKeyDown={(event) => {
-                    if (event.key === "Escape") setPickerOpen(false);
+                    if (event.key === "Escape") {
+                      setPickerOpen(false);
+                      return;
+                    }
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    const top = visibleMatches[0];
+                    if (top) {
+                      toggleUser(top.id);
+                      setQuery("");
+                    }
                   }}
                   placeholder="Search people to add…"
                   aria-label="Search people to assign"

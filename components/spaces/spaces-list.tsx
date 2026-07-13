@@ -68,7 +68,14 @@ export function SpacesList({
             Name it after the team or company. You become its lead — open it to
             add members and create projects in it.
           </p>
-          <div className="mt-3 flex flex-wrap gap-3">
+          <form
+            className="mt-3 flex flex-wrap gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (isPending || !name.trim()) return;
+              create();
+            }}
+          >
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -77,8 +84,7 @@ export function SpacesList({
               disabled={isPending}
             />
             <button
-              type="button"
-              onClick={create}
+              type="submit"
               disabled={isPending || !name.trim()}
               className="ui-button-primary shrink-0 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -89,7 +95,7 @@ export function SpacesList({
               )}
               Create
             </button>
-          </div>
+          </form>
         </div>
       ) : null}
 

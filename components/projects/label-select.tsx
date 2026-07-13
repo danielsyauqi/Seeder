@@ -142,6 +142,22 @@ export function LabelSelect({
                   type="search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  // This box lives inside the task form, so Enter would
+                  // otherwise implicitly submit the task instead of acting on
+                  // the dropdown. Always swallow it: toggle the top match (the
+                  // picker is multi-select, so it stays open for the next one),
+                  // or fall through to creating what was typed.
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    const top = filtered[0];
+                    if (top) {
+                      toggle(top.id);
+                      setQuery("");
+                    } else if (canCreate) {
+                      setIsCreating(true);
+                    }
+                  }}
                   placeholder="Search or type to create…"
                   className="ui-input"
                   style={{ paddingLeft: 32 }}
@@ -229,7 +245,11 @@ export function LabelSelect({
                   );
                 })}
               </div>
+              {/* Focused on entry so Enter confirms the create. It can't be a
+                  nested <form>/submit — this dropdown renders inside the task
+                  form, and Enter there would save the task instead. */}
               <button
+                autoFocus
                 type="button"
                 onClick={submitCreate}
                 disabled={isPending}

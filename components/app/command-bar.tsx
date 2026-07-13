@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
   useDeferredValue,
@@ -75,6 +75,7 @@ function highlightMatches(text: string, tokens: string[]) {
 
 export function CommandBar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<SearchIndexItem[]>([]);
@@ -88,6 +89,16 @@ export function CommandBar() {
   const visibleItems = items
     .filter((item) => matchesQuery(item, queryTokens))
     .slice(0, queryTokens.length ? 12 : 8);
+
+  // Keyboard-driven result list: the highlighted row is what Enter opens, and
+  // it resets to the top whenever the result set changes under you.
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeKey = visibleItems.map((item) => item.id).join("|");
+  const [seenKey, setSeenKey] = useState(activeKey);
+  if (seenKey !== activeKey) {
+    setSeenKey(activeKey);
+    setActiveIndex(0);
+  }
 
   const onGlobalKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -226,6 +237,34 @@ export function CommandBar() {
                   ref={inputRef}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      setActiveIndex((current) =>
+                        visibleItems.length
+                          ? (current + 1) % visibleItems.length
+                          : 0,
+                      );
+                      return;
+                    }
+                    if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setActiveIndex((current) =>
+                        visibleItems.length
+                          ? (current - 1 + visibleItems.length) %
+                            visibleItems.length
+                          : 0,
+                      );
+                      return;
+                    }
+                    if (event.key === "Enter") {
+                      const target = visibleItems[activeIndex];
+                      if (!target) return;
+                      event.preventDefault();
+                      setIsOpen(false);
+                      router.push(target.href);
+                    }
+                  }}
                   placeholder="Search projects, tasks, or requests"
                   className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted"
                 />
@@ -252,15 +291,22 @@ export function CommandBar() {
                   </div>
                 ) : visibleItems.length ? (
                   <div className="space-y-0.5">
-                    {visibleItems.map((item) => {
+                    {visibleItems.map((item, index) => {
                       const meta = kindMeta[item.kind];
                       const Icon = meta.icon;
+                      const isActive = index === activeIndex;
 
                       return (
                         <Link
                           key={item.id}
                           href={item.href}
-                          className="flex items-start justify-between gap-4 rounded-sm px-3 py-2.5 transition hover:bg-surface"
+                          onMouseEnter={() => setActiveIndex(index)}
+                          onClick={() => setIsOpen(false)}
+                          aria-selected={isActive}
+                          className={cn(
+                            "flex items-start justify-between gap-4 rounded-sm px-3 py-2.5 transition hover:bg-surface",
+                            isActive && "bg-surface",
+                          )}
                         >
                           <div className="flex min-w-0 items-start gap-2.5">
                             <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-sm border border-border bg-background text-muted">

@@ -64,6 +64,14 @@ export function ProjectNotesPanel({
         <form
           action={createProjectNoteAction}
           className="space-y-3 rounded-md border border-border bg-surface px-4 py-4"
+          // The note body is a contenteditable, so Enter is a newline and never
+          // triggers the form's implicit submission. Cmd/Ctrl+Enter saves.
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              event.currentTarget.requestSubmit();
+            }
+          }}
         >
           <input type="hidden" name="projectId" value={projectId} />
           <input type="hidden" name="returnTo" value={currentPath} />
@@ -161,6 +169,12 @@ export function ProjectNotesPanel({
               <form
                 action={updateProjectNoteAction}
                 className="space-y-3"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    event.currentTarget.requestSubmit();
+                  }
+                }}
               >
                 <input type="hidden" name="projectId" value={projectId} />
                 <input type="hidden" name="noteId" value={note.id} />

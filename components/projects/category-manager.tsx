@@ -115,8 +115,36 @@ function CategoryEditForm({
   const [color, setColor] = useState(category.color);
   const [isPending, startTransition] = useTransition();
 
+  const saveCategory = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const formData = new FormData();
+    formData.set("categoryId", category.id);
+    formData.set("name", trimmed);
+    formData.set("color", color);
+    startTransition(async () => {
+      try {
+        await updateTaskCategoryAction(formData);
+        toast("Category updated", "success");
+        onDone();
+      } catch (error: unknown) {
+        toast(
+          error instanceof Error ? error.message : "Could not update category",
+          "danger",
+        );
+      }
+    });
+  };
+
   return (
-    <div className="grid gap-3 rounded-md border border-border bg-surface p-3">
+    <form
+      className="grid gap-3 rounded-md border border-border bg-surface p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (isPending) return;
+        saveCategory();
+      }}
+    >
       <label className="grid gap-1.5">
         <span className="text-[12px] font-medium text-foreground">Name</span>
         <input
@@ -160,29 +188,7 @@ function CategoryEditForm({
           Cancel
         </button>
         <button
-          type="button"
-          onClick={() => {
-            const trimmed = name.trim();
-            if (!trimmed) return;
-            const formData = new FormData();
-            formData.set("categoryId", category.id);
-            formData.set("name", trimmed);
-            formData.set("color", color);
-            startTransition(async () => {
-              try {
-                await updateTaskCategoryAction(formData);
-                toast("Category updated", "success");
-                onDone();
-              } catch (error: unknown) {
-                toast(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not update category",
-                  "danger",
-                );
-              }
-            });
-          }}
+          type="submit"
           className="ui-button-primary px-4"
           disabled={isPending}
         >
@@ -190,7 +196,7 @@ function CategoryEditForm({
           Save
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 

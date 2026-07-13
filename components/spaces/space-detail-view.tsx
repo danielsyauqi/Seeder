@@ -154,7 +154,18 @@ export function SpaceDetailView({ detail }: { detail: Detail }) {
         </p>
 
         {canManage ? (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <form
+            className="mt-3 flex flex-wrap gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (isPending || !email.trim()) return;
+              call(
+                { op: "addMember", spaceId: detail.id, email: email.trim() },
+                "Member added",
+                () => setEmail(""),
+              );
+            }}
+          >
             <input
               type="email"
               value={email}
@@ -164,21 +175,14 @@ export function SpaceDetailView({ detail }: { detail: Detail }) {
               disabled={isPending}
             />
             <button
-              type="button"
+              type="submit"
               disabled={isPending || !email.trim()}
-              onClick={() =>
-                call(
-                  { op: "addMember", spaceId: detail.id, email: email.trim() },
-                  "Member added",
-                  () => setEmail(""),
-                )
-              }
               className="ui-button-secondary shrink-0 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <UserPlus className="size-4" />
               Add
             </button>
-          </div>
+          </form>
         ) : null}
 
         <div className="mt-2 divide-y divide-border">

@@ -196,8 +196,39 @@ function StatusCreateForm({ projectId }: { projectId: string }) {
   const [isTerminal, setIsTerminal] = useState(false);
   const [isPending, startTransition] = useTransition();
 
+  const addStatus = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const formData = new FormData();
+    formData.set("projectId", projectId);
+    formData.set("name", trimmed);
+    formData.set("color", color);
+    formData.set("isTerminal", isTerminal ? "true" : "false");
+    startTransition(async () => {
+      try {
+        await createTaskStatusAction(formData);
+        toast("Status added", "success");
+        setName("");
+        setColor(DEFAULT_COLOR);
+        setIsTerminal(false);
+      } catch (error) {
+        toast(
+          error instanceof Error ? error.message : "Could not add status",
+          "danger",
+        );
+      }
+    });
+  };
+
   return (
-    <div className="grid gap-3 rounded-md border border-dashed border-border bg-surface p-3">
+    <form
+      className="grid gap-3 rounded-md border border-dashed border-border bg-surface p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (isPending) return;
+        addStatus();
+      }}
+    >
       <p className="text-[12px] font-medium text-foreground">Add a status</p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="grid min-w-48 flex-1 gap-1.5">
@@ -222,31 +253,8 @@ function StatusCreateForm({ projectId }: { projectId: string }) {
       <SwatchPicker color={color} onChange={setColor} />
       <div className="flex justify-end">
         <button
-          type="button"
+          type="submit"
           disabled={isPending || !name.trim()}
-          onClick={() => {
-            const trimmed = name.trim();
-            if (!trimmed) return;
-            const formData = new FormData();
-            formData.set("projectId", projectId);
-            formData.set("name", trimmed);
-            formData.set("color", color);
-            formData.set("isTerminal", isTerminal ? "true" : "false");
-            startTransition(async () => {
-              try {
-                await createTaskStatusAction(formData);
-                toast("Status added", "success");
-                setName("");
-                setColor(DEFAULT_COLOR);
-                setIsTerminal(false);
-              } catch (error) {
-                toast(
-                  error instanceof Error ? error.message : "Could not add status",
-                  "danger",
-                );
-              }
-            });
-          }}
           className="ui-button-primary px-4 disabled:opacity-60"
         >
           {isPending ? (
@@ -257,7 +265,7 @@ function StatusCreateForm({ projectId }: { projectId: string }) {
           Add status
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -276,8 +284,38 @@ function StatusEditForm({
   const [isInitial, setIsInitial] = useState(status.isInitial);
   const [isPending, startTransition] = useTransition();
 
+  const saveStatus = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const formData = new FormData();
+    formData.set("statusId", status.id);
+    formData.set("name", trimmed);
+    formData.set("color", color);
+    formData.set("isTerminal", isTerminal ? "true" : "false");
+    formData.set("isInitial", isInitial ? "true" : "false");
+    startTransition(async () => {
+      try {
+        await updateTaskStatusDefAction(formData);
+        toast("Status updated", "success");
+        onDone();
+      } catch (error) {
+        toast(
+          error instanceof Error ? error.message : "Could not update status",
+          "danger",
+        );
+      }
+    });
+  };
+
   return (
-    <div className="grid gap-3 rounded-md border border-border bg-surface p-3">
+    <form
+      className="grid gap-3 rounded-md border border-border bg-surface p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (isPending) return;
+        saveStatus();
+      }}
+    >
       <label className="grid gap-1.5">
         <span className="text-[12px] font-medium text-foreground">Name</span>
         <input
@@ -319,31 +357,7 @@ function StatusEditForm({
           Cancel
         </button>
         <button
-          type="button"
-          onClick={() => {
-            const trimmed = name.trim();
-            if (!trimmed) return;
-            const formData = new FormData();
-            formData.set("statusId", status.id);
-            formData.set("name", trimmed);
-            formData.set("color", color);
-            formData.set("isTerminal", isTerminal ? "true" : "false");
-            formData.set("isInitial", isInitial ? "true" : "false");
-            startTransition(async () => {
-              try {
-                await updateTaskStatusDefAction(formData);
-                toast("Status updated", "success");
-                onDone();
-              } catch (error) {
-                toast(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not update status",
-                  "danger",
-                );
-              }
-            });
-          }}
+          type="submit"
           className="ui-button-primary px-4"
           disabled={isPending}
         >
@@ -351,7 +365,7 @@ function StatusEditForm({
           Save
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
