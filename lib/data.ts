@@ -43,9 +43,11 @@ import {
   tasks,
   user,
   vcsCommits,
+  vcsConnections,
   vcsRefs,
   vcsWorkLinks,
 } from "@/lib/db/schema";
+import { summarizeTaskGit } from "@/lib/services/vcs/task-summary";
 import { formatRequestCode, formatTaskCode } from "@/lib/codes";
 import { formatProjectStatus } from "@/lib/project-status";
 import { rewriteRichTextUploadSrc } from "@/lib/rich-text";
@@ -1237,6 +1239,8 @@ export async function getProjectWorkspace(
     labelRows,
     taskLabelRows,
     statusRows,
+    taskRefRows,
+    taskCommitRows,
   ] = await Promise.all([
     db
       .select()
@@ -1371,6 +1375,50 @@ export async function getProjectWorkspace(
       .from(taskStatuses)
       .where(eq(taskStatuses.projectId, projectId))
       .orderBy(asc(taskStatuses.sortOrder), asc(taskStatuses.name)),
+    // Git summary for the board cards (branch name + latest commit sha). Both
+    // are project-scoped aggregates grouped by task, in the same shape as the
+    // checklist/comment counts above — never a per-card query. Empty for
+    // projects with no VCS connection, since vcs_work_links only gets rows once
+    // a connection ingests a coded commit/branch.
+    db
+      .select({
+        taskId: vcsWorkLinks.targetId,
+        name: vcsRefs.name,
+        state: vcsRefs.state,
+        updatedAt: vcsRefs.updatedAt,
+      })
+      .from(vcsWorkLinks)
+      .innerJoin(vcsRefs, eq(vcsRefs.id, vcsWorkLinks.gitEntityId))
+      .where(
+        and(
+          eq(vcsWorkLinks.projectId, projectId),
+          eq(vcsWorkLinks.targetType, "task"),
+          eq(vcsWorkLinks.gitEntityType, "ref"),
+        ),
+      ),
+    // `sha` and `ref_name` are bare columns under a single max() aggregate,
+    // which SQLite (D1 and the libsql node runtime alike) resolves to the row
+    // that produced the max — i.e. they come from the newest commit, with no
+    // second query or window function needed. count() alongside it doesn't
+    // disturb that rule.
+    db
+      .select({
+        taskId: vcsWorkLinks.targetId,
+        sha: vcsCommits.sha,
+        refName: vcsCommits.refName,
+        commitCount: count(),
+        latestCommittedAt: sql<number | null>`max(${vcsCommits.committedAt})`,
+      })
+      .from(vcsWorkLinks)
+      .innerJoin(vcsCommits, eq(vcsCommits.id, vcsWorkLinks.gitEntityId))
+      .where(
+        and(
+          eq(vcsWorkLinks.projectId, projectId),
+          eq(vcsWorkLinks.targetType, "task"),
+          eq(vcsWorkLinks.gitEntityType, "commit"),
+        ),
+      )
+      .groupBy(vcsWorkLinks.targetId),
   ]);
 
   // Group label memberships by task so each board task carries its labels.
@@ -1399,8 +1447,19 @@ export async function getProjectWorkspace(
   const publishedUpdateTaskIds = new Set(
     publishedUpdateRows.map((row) => row.taskId),
   );
+  const gitByTask = summarizeTaskGit(
+    taskRefRows,
+    taskCommitRows.map((row) => ({
+      taskId: row.taskId,
+      sha: row.sha,
+      refName: row.refName,
+      commitCount: Number(row.commitCount),
+      latestCommittedAt: row.latestCommittedAt,
+    })),
+  );
   const tasksWithLabels = boardTasks.map((task) => {
     const counts = checklistCountByTask.get(task.id);
+    const git = gitByTask.get(task.id);
     return {
       ...task,
       labels: labelsByTask.get(task.id) ?? [],
@@ -1408,6 +1467,11 @@ export async function getProjectWorkspace(
       subtaskDone: counts?.done ?? 0,
       commentCount: commentCountByTask.get(task.id) ?? 0,
       hasStatusUpdate: publishedUpdateTaskIds.has(task.id),
+      gitBranchName: git?.branchName ?? null,
+      gitBranchState: git?.branchState ?? null,
+      gitBranchCount: git?.branchCount ?? 0,
+      gitCommitSha: git?.commitSha ?? null,
+      gitCommitCount: git?.commitCount ?? 0,
     };
   });
   const activity = buildRecentActivity([project], activityRows, {
@@ -1461,8 +1525,14 @@ export async function getTaskModalDetail(
 ) {
   if (!(await canAccessProject(viewer, projectId))) return null;
   const db = getDb();
-  const [checklistItems, comments, statusUpdateRows, linkedCommits, linkedRefs] =
-    await Promise.all([
+  const [
+    checklistItems,
+    comments,
+    statusUpdateRows,
+    linkedCommits,
+    linkedRefs,
+    connectionRows,
+  ] = await Promise.all([
       db
         .select()
         .from(taskChecklistItems)
@@ -1520,6 +1590,7 @@ export async function getTaskModalDetail(
           authorUsername: vcsCommits.authorUsername,
           url: vcsCommits.url,
           committedAt: vcsCommits.committedAt,
+          refName: vcsCommits.refName,
         })
         .from(vcsWorkLinks)
         .innerJoin(vcsCommits, eq(vcsCommits.id, vcsWorkLinks.gitEntityId))
@@ -1553,6 +1624,15 @@ export async function getTaskModalDetail(
           ),
         )
         .orderBy(desc(vcsRefs.updatedAt)),
+      // Drives the Details/Git switcher in the modal sidebar: a connected
+      // project shows the Git view (with an empty state explaining the ticket
+      // code convention) even before any commit has been linked, while an
+      // unconnected project doesn't show the toggle at all.
+      db
+        .select({ id: vcsConnections.id })
+        .from(vcsConnections)
+        .where(eq(vcsConnections.projectId, projectId))
+        .limit(1),
     ]);
   return {
     checklistItems,
@@ -1560,6 +1640,7 @@ export async function getTaskModalDetail(
     publishedUpdate: statusUpdateRows[0] ?? null,
     linkedCommits,
     linkedRefs,
+    hasVcsConnection: connectionRows.length > 0,
   };
 }
 
