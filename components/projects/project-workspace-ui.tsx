@@ -143,7 +143,18 @@ function StatusUpdateForm({
       : "text-muted";
 
   return (
-    <form action={saveTaskStatusUpdateAction} className="grid gap-4">
+    <form
+      action={saveTaskStatusUpdateAction}
+      className="grid gap-4"
+      // The summary is a multi-line textarea, so Enter is a newline. Cmd/Ctrl+
+      // Enter publishes, matching the comment composer.
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          event.currentTarget.requestSubmit();
+        }
+      }}
+    >
       <input type="hidden" name="projectId" value={projectId} />
       <input type="hidden" name="taskId" value={taskId} />
       <input type="hidden" name="returnTo" value={returnTo} />
@@ -587,6 +598,7 @@ function ActionButton({
   className,
   icon,
   onClick,
+  autoFocus = false,
 }: {
   children: React.ReactNode;
   type?: "button" | "submit";
@@ -596,6 +608,10 @@ function ActionButton({
   className?: string;
   icon?: React.ReactNode;
   onClick?: () => void | Promise<void>;
+  // For confirm-style modals with no text field: focusing the action makes
+  // Enter confirm it. Never set this on a form's Save button — the form
+  // already handles Enter, and stealing focus from the first field is worse.
+  autoFocus?: boolean;
 }) {
   const variantClassName =
     variant === "danger"
@@ -606,6 +622,7 @@ function ActionButton({
 
   return (
     <button
+      autoFocus={autoFocus}
       type={type}
       disabled={isPending}
       onClick={onClick}
@@ -1483,6 +1500,7 @@ function ProjectWorkspaceModalHost({
           {errorNotice}
 
           <ActionButton
+            autoFocus
             isPending={pendingAction === "delete-task"}
             pendingLabel="Deleting task..."
             variant="danger"

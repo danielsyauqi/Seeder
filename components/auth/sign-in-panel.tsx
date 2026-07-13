@@ -197,7 +197,16 @@ export function SignInPanel({
 
         <div className="flex items-center justify-center bg-surface p-6 sm:p-10">
           <div className="w-full max-w-md rounded-md border border-border bg-surface-strong p-6 sm:p-8">
-            <div className="space-y-6">
+            {/* A real form, so Enter submits from any field and password
+                managers recognise the credential pair. */}
+            <form
+              className="space-y-6"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (isPending) return;
+                startTransition(handleEmailFlow);
+              }}
+            >
               <div>
                 <h2 className="text-[1.5rem] font-medium tracking-[-0.022em] text-foreground">
                   {heading}
@@ -212,6 +221,8 @@ export function SignInPanel({
                     <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
                       <UserCircle className="size-4 text-muted" />
                       <input
+                        name="name"
+                        autoComplete="name"
                         value={name}
                         onChange={(event) => setName(event.target.value)}
                         className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted"
@@ -232,6 +243,8 @@ export function SignInPanel({
                     <ArrowRight className="size-4 -rotate-45 text-muted" />
                     <input
                       type="email"
+                      name="email"
+                      autoComplete="email"
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       readOnly={emailReadOnly}
@@ -247,6 +260,10 @@ export function SignInPanel({
                     <LockKey className="size-4 text-muted" />
                     <input
                       type="password"
+                      name="password"
+                      autoComplete={
+                        mode === "sign-in" ? "current-password" : "new-password"
+                      }
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted"
@@ -264,9 +281,8 @@ export function SignInPanel({
 
               <div className="space-y-2">
                 <button
-                  type="button"
+                  type="submit"
                   disabled={isPending}
-                  onClick={() => startTransition(handleEmailFlow)}
                   className="ui-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isPending ? <CircleNotch className="size-4 animate-spin" /> : null}
@@ -295,7 +311,7 @@ export function SignInPanel({
                   </button>
                 ) : null}
               </div>
-            </div>
+            </form>
           </div>
         </div>
       </div>

@@ -48,7 +48,14 @@ export function InviteForm() {
       <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
         New invitation
       </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_180px_auto]">
+      <form
+        className="mt-3 grid gap-3 sm:grid-cols-[1fr_180px_auto]"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (isPending || !email.trim()) return;
+          submit();
+        }}
+      >
         <input
           type="email"
           value={email}
@@ -67,8 +74,7 @@ export function InviteForm() {
           <option value="admin">Admin</option>
         </select>
         <button
-          type="button"
-          onClick={submit}
+          type="submit"
           disabled={isPending || !email.trim()}
           className="ui-button-primary disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -79,7 +85,7 @@ export function InviteForm() {
           )}
           Create invite
         </button>
-      </div>
+      </form>
 
       <p className="mt-3 text-[12px] leading-5 text-muted">
         Links expire after 7 days. Admins can invite members; only the owner can

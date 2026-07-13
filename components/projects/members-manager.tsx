@@ -133,7 +133,14 @@ export function MembersManager({
             first.
             {canAdminister ? " Only you can grant the Leader role." : null}
           </p>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
+          <form
+            className="mt-3 flex flex-wrap items-center gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (isPending || !email.trim()) return;
+              addMember();
+            }}
+          >
             <input
               type="email"
               value={email}
@@ -159,8 +166,7 @@ export function MembersManager({
               </div>
             ) : null}
             <button
-              type="button"
-              onClick={addMember}
+              type="submit"
               disabled={isPending || !email.trim()}
               className="ui-button-primary shrink-0 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -171,7 +177,7 @@ export function MembersManager({
               )}
               Add
             </button>
-          </div>
+          </form>
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-border bg-surface px-4 py-3 text-[12px] leading-5 text-muted">

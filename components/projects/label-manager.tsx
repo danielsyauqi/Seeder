@@ -200,8 +200,36 @@ function LabelEditForm({
   const [color, setColor] = useState(label.color);
   const [isPending, startTransition] = useTransition();
 
+  const saveLabel = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const formData = new FormData();
+    formData.set("labelId", label.id);
+    formData.set("name", trimmed);
+    formData.set("color", color);
+    startTransition(async () => {
+      try {
+        await updateTaskLabelAction(formData);
+        toast("Label updated", "success");
+        onDone();
+      } catch (error: unknown) {
+        toast(
+          error instanceof Error ? error.message : "Could not update label",
+          "danger",
+        );
+      }
+    });
+  };
+
   return (
-    <div className="grid gap-3 rounded-md border border-border bg-surface p-3">
+    <form
+      className="grid gap-3 rounded-md border border-border bg-surface p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (isPending) return;
+        saveLabel();
+      }}
+    >
       <label className="grid gap-1.5">
         <span className="text-[12px] font-medium text-foreground">Name</span>
         <input
@@ -245,29 +273,7 @@ function LabelEditForm({
           Cancel
         </button>
         <button
-          type="button"
-          onClick={() => {
-            const trimmed = name.trim();
-            if (!trimmed) return;
-            const formData = new FormData();
-            formData.set("labelId", label.id);
-            formData.set("name", trimmed);
-            formData.set("color", color);
-            startTransition(async () => {
-              try {
-                await updateTaskLabelAction(formData);
-                toast("Label updated", "success");
-                onDone();
-              } catch (error: unknown) {
-                toast(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not update label",
-                  "danger",
-                );
-              }
-            });
-          }}
+          type="submit"
           className="ui-button-primary px-4"
           disabled={isPending}
         >
@@ -275,7 +281,7 @@ function LabelEditForm({
           Save
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 

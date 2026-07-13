@@ -138,6 +138,20 @@ export function CategorySelect({
                   type="search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  // This box lives inside the task form, so Enter would
+                  // otherwise implicitly submit the task instead of acting on
+                  // the dropdown. Always swallow it: pick the top match, or
+                  // fall through to creating what was typed.
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    const top = filtered[0];
+                    if (top) {
+                      selectCategory(top.id);
+                    } else if (canCreate) {
+                      startCreate();
+                    }
+                  }}
                   placeholder="Search or type to create…"
                   className="ui-input"
                   style={{ paddingLeft: 32 }}
@@ -232,7 +246,11 @@ export function CategorySelect({
                   );
                 })}
               </div>
+              {/* Focused on entry so Enter confirms the create. It can't be a
+                  nested <form>/submit — this dropdown renders inside the task
+                  form, and Enter there would save the task instead. */}
               <button
+                autoFocus
                 type="button"
                 onClick={submitCreate}
                 disabled={isPending}
