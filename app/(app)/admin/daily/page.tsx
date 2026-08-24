@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth-server";
 import { formatDateKey, parseDateKey } from "@/lib/daily";
 import { getDailyPlannerProjects } from "@/lib/data";
 import { getDailyOpsForDate, listUsersBrief } from "@/lib/data-admin";
+import { VCS_BOT_USER_ID } from "@/lib/services/vcs/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -24,11 +25,12 @@ export default async function AdminDailyPage({
   const dateKey = formatDateKey(anchor);
   const view = toSingleParam(resolved.view) === "table" ? "table" : "board";
 
-  const [rows, users, projects] = await Promise.all([
+  const [rows, workspaceUsers, projects] = await Promise.all([
     getDailyOpsForDate(anchor),
     listUsersBrief(),
     getDailyPlannerProjects(viewer.id),
   ]);
+  const users = workspaceUsers.filter((user) => user.id !== VCS_BOT_USER_ID);
 
   const items = rows.map((row) => ({
     id: row.id,
