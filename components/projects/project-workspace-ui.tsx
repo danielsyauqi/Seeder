@@ -15,6 +15,7 @@ import {
   ArrowSquareOut,
   Check,
   CircleNotch,
+  GitBranch,
   GitCommit,
   Kanban,
   Plus,
@@ -55,7 +56,7 @@ import type {
 } from "@/lib/data";
 import type { UserRole } from "@/lib/db/schema";
 import { CATEGORY_SWATCHES } from "@/lib/swatches";
-import { cn, withSearchParams } from "@/lib/utils";
+import { cn, formatDate, withSearchParams } from "@/lib/utils";
 
 type WorkspaceModalKind =
   | "new-task"
@@ -647,6 +648,198 @@ function CommentsLoading() {
   );
 }
 
+type TaskSidebarTab = "details" | "git";
+
+/**
+ * The task modal's sidebar shows one of two faces: the editable Details fields,
+ * or the read-only Git view (branches + commits the VCS sync linked to this
+ * task's ticket code). Only rendered for projects with a repo connected.
+ */
+function SidebarTabs({
+  value,
+  onChange,
+  gitCount,
+}: {
+  value: TaskSidebarTab;
+  onChange: (tab: TaskSidebarTab) => void;
+  gitCount: number;
+}) {
+  const tabs: { id: TaskSidebarTab; label: string }[] = [
+    { id: "details", label: "Details" },
+    { id: "git", label: "Git" },
+  ];
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Task sidebar"
+      className="flex gap-1 rounded-md border border-border bg-background p-1"
+    >
+      {tabs.map((tab) => {
+        const isActive = value === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => onChange(tab.id)}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-sm px-2 py-1 font-mono text-[11px] uppercase tracking-[0.08em] transition",
+              isActive
+                ? "bg-surface-strong text-foreground shadow-sm"
+                : "text-muted hover:text-foreground",
+            )}
+          >
+            {tab.label}
+            {tab.id === "git" && gitCount > 0 ? (
+              <span className="rounded-sm bg-accent-soft px-1 text-[10px] text-accent">
+                {gitCount}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TaskGitPanel({
+  taskCode,
+  refs,
+  commits,
+}: {
+  taskCode: string | null;
+  refs: TaskModalDetail["linkedRefs"];
+  commits: TaskModalDetail["linkedCommits"];
+}) {
+  if (refs.length === 0 && commits.length === 0) {
+    return (
+      <p className="text-[12px] leading-6 text-muted">
+        No branches or commits linked yet. Put{" "}
+        <code className="rounded-sm border border-border bg-background px-1 py-0.5 font-mono text-[11px] text-foreground">
+          {taskCode ?? "the ticket code"}
+        </code>{" "}
+        in a branch name or commit message and it will show up here.
+      </p>
+    );
+  }
+
+  // A connection in 'ticket' link mode never links a ref to a task, so with no
+  // tracked branch we fall back to the branches the linked commits actually
+  // landed on. Same information, one step removed — hence no state badge or
+  // link, which we only have for a tracked ref.
+  const derivedBranches =
+    refs.length === 0
+      ? [...new Set(commits.map((c) => c.refName).filter(Boolean))]
+      : [];
+
+  return (
+    <div className="grid gap-4">
+      {refs.length > 0 || derivedBranches.length > 0 ? (
+        <div className="grid gap-2">
+          <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted">
+            {refs.length + derivedBranches.length === 1
+              ? "Branch"
+              : `Branches (${refs.length + derivedBranches.length})`}
+          </p>
+          {refs.map((ref) => (
+            <div
+              key={ref.id}
+              className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5"
+            >
+              <GitBranch className="size-3.5 shrink-0 text-muted" />
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate font-mono text-[11px] text-foreground",
+                  ref.state === "deleted" && "line-through opacity-60",
+                )}
+                title={ref.name}
+              >
+                {ref.name}
+              </span>
+              {ref.url ? (
+                <a
+                  href={ref.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 text-muted transition hover:text-foreground"
+                >
+                  <ArrowSquareOut className="size-3.5" />
+                  <span className="sr-only">Open branch {ref.name}</span>
+                </a>
+              ) : null}
+            </div>
+          ))}
+          {derivedBranches.map((name) => (
+            <div
+              key={name}
+              className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5"
+              title={`${name} — the branch these commits were pushed on`}
+            >
+              <GitBranch className="size-3.5 shrink-0 text-muted" />
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
+                {name}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {commits.length > 0 ? (
+        <div className="grid gap-2">
+          <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted">
+            Commits ({commits.length})
+          </p>
+          {/* Capped height rather than a long sidebar: a busy ticket can carry
+              dozens of commits, and the modal already scrolls as a whole. */}
+          <div className="grid max-h-72 gap-2 overflow-y-auto">
+            {commits.map((commit) => (
+              <div
+                key={commit.id}
+                className="grid gap-1 rounded-md border border-border bg-background px-2 py-1.5"
+              >
+                <div className="flex items-center gap-1.5">
+                  <code className="shrink-0 font-mono text-[11px] text-accent">
+                    {commit.sha.slice(0, 7)}
+                  </code>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-muted">
+                    {commit.committedAt ? formatDate(commit.committedAt) : ""}
+                  </span>
+                  {commit.url ? (
+                    <a
+                      href={commit.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 text-muted transition hover:text-foreground"
+                    >
+                      <ArrowSquareOut className="size-3.5" />
+                      <span className="sr-only">
+                        Open commit {commit.sha.slice(0, 7)}
+                      </span>
+                    </a>
+                  ) : null}
+                </div>
+                <p
+                  className="line-clamp-2 break-words text-[12px] leading-5 text-foreground"
+                  title={commit.message ?? undefined}
+                >
+                  {commit.message?.split("\n")[0] || "(no commit message)"}
+                </p>
+                {commit.authorUsername || commit.authorName ? (
+                  <p className="truncate font-mono text-[10px] text-muted">
+                    {commit.authorUsername || commit.authorName}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ModalShell({
   title,
   description,
@@ -756,6 +949,19 @@ function ProjectWorkspaceModalHost({
 
   const selectedTaskId = selectedTask?.id ?? null;
   const selectedRequestId = selectedRequest?.id ?? null;
+
+  // Which face of the task modal's sidebar is showing. The choice is stored
+  // against the task it was made on and derived back out, so switching tasks
+  // falls back to Details without an effect — opening a card never lands you on
+  // a previous task's Git tab.
+  const [sidebarTabState, setSidebarTabState] = useState<{
+    taskId: string | null;
+    tab: TaskSidebarTab;
+  }>({ taskId: null, tab: "details" });
+  const sidebarTab =
+    sidebarTabState.taskId === selectedTaskId ? sidebarTabState.tab : "details";
+  const setSidebarTab = (tab: TaskSidebarTab) =>
+    setSidebarTabState({ taskId: selectedTaskId, tab });
 
   // `workspace` is in the deps so a server revalidation (e.g. a status-update
   // save/delete that redirects back here) re-fetches the open modal's detail.
@@ -1036,6 +1242,14 @@ function ProjectWorkspaceModalHost({
       workspace.project.slug,
       selectedTask.codeNumber,
     );
+    const gitLinkCount =
+      (taskDetail?.linkedRefs.length ?? 0) +
+      (taskDetail?.linkedCommits.length ?? 0);
+    // The Git face of the sidebar is offered whenever the project has a repo
+    // connected (its empty state teaches the ticket-code convention), and also
+    // whenever links already exist — so a connection removed after the fact
+    // never orphans the history it produced.
+    const showGitTab = Boolean(taskDetail?.hasVcsConnection) || gitLinkCount > 0;
     return (
       <ModalShell
         onClose={onClose}
@@ -1303,10 +1517,28 @@ function ProjectWorkspaceModalHost({
             </div>
 
             <aside className="grid content-start gap-4 rounded-md border border-border bg-surface p-4">
-              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
-                Details
-              </p>
+              {showGitTab ? (
+                <SidebarTabs
+                  value={sidebarTab}
+                  onChange={setSidebarTab}
+                  gitCount={gitLinkCount}
+                />
+              ) : (
+                <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
+                  Details
+                </p>
+              )}
 
+              {/* Hidden, never unmounted: these are uncontrolled inputs read off
+                  FormData at submit time, so dropping them from the tree while
+                  the Git tab is open would save the task with an empty
+                  status/assignee/category. */}
+              <div
+                className={cn(
+                  "grid content-start gap-4",
+                  showGitTab && sidebarTab !== "details" && "hidden",
+                )}
+              >
               <label className="grid gap-1.5">
                 <span className="text-[12px] font-medium text-foreground">Status</span>
                 <select
@@ -1416,6 +1648,17 @@ function ProjectWorkspaceModalHost({
                   </div>
                 );
               })() : null}
+              </div>
+
+              {showGitTab ? (
+                <div className={cn(sidebarTab !== "git" && "hidden")}>
+                  <TaskGitPanel
+                    taskCode={taskCode}
+                    refs={taskDetail?.linkedRefs ?? []}
+                    commits={taskDetail?.linkedCommits ?? []}
+                  />
+                </div>
+              ) : null}
             </aside>
           </div>
 

@@ -29,3 +29,10 @@ BETTER_AUTH_SECRET=change-me-in-production
 # requires a personal access token). Set in production if browser-based MCP
 # clients will connect, e.g. https://claude.ai
 # MCP_ALLOWED_ORIGINS=
+
+# Base64 of 32 random bytes. Encrypts VCS (Git integration) provider PATs and
+# webhook secrets at rest (lib/crypto/secrets.ts). Required in production
+# (once BETTER_AUTH_URL is set); may stay unset locally until you use the VCS
+# feature — the crypto helper throws on first use as the safety net.
+# Generate one with: openssl rand -base64 32
+# VCS_ENCRYPTION_KEY=

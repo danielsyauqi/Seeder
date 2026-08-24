@@ -32,6 +32,11 @@ const betterAuthSecret =
   optionalString(process.env.BETTER_AUTH_SECRET) ?? DEFAULT_BETTER_AUTH_SECRET;
 const betterAuthUrl = optionalString(process.env.BETTER_AUTH_URL);
 
+// Base64 of 32 random bytes, used to AES-GCM encrypt VCS provider PATs and
+// webhook secrets at rest (see lib/crypto/secrets.ts). Generate with
+// `openssl rand -base64 32` and set via `wrangler secret put VCS_ENCRYPTION_KEY`.
+const vcsEncryptionKeyValue = optionalString(process.env.VCS_ENCRYPTION_KEY);
+
 // Comma-separated allowed Origin values for the MCP endpoint (DNS-rebinding
 // protection). Empty = unconfigured → allowed (token auth still required);
 // set this in production to your AI clients' origins.
@@ -58,6 +63,18 @@ if (betterAuthUrl && betterAuthSecret === DEFAULT_BETTER_AUTH_SECRET) {
   );
 }
 
+// Same fail-closed signal as BETTER_AUTH_SECRET above: BETTER_AUTH_URL set
+// means "this is a real deployment". Locally VCS_ENCRYPTION_KEY may stay unset
+// until the VCS feature is used — lib/crypto/secrets.ts throws on first use as
+// the safety net in that case.
+if (betterAuthUrl && !vcsEncryptionKeyValue) {
+  throw new Error(
+    "VCS_ENCRYPTION_KEY must be set in production (it is unset). Generate one " +
+      "with `openssl rand -base64 32` and set it via " +
+      "`wrangler secret put VCS_ENCRYPTION_KEY`.",
+  );
+}
+
 export const serverEnv = {
   betterAuthSecret,
   betterAuthUrl,
@@ -73,6 +90,7 @@ export const serverEnv = {
         .map((origin) => origin.trim())
         .filter(Boolean)
     : [],
+  vcsEncryptionKey: vcsEncryptionKeyValue ?? "",
 };
 
 export const authTrustedOrigins = Array.from(

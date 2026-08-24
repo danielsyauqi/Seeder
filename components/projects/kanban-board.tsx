@@ -27,6 +27,7 @@ import {
   ChatCircleText,
   Clock,
   DotsSixVertical,
+  GitBranch,
   GitCommit,
   ListChecks,
   MagnifyingGlass,
@@ -87,6 +88,13 @@ export type BoardTask = {
   subtaskTotal?: number;
   subtaskDone?: number;
   commentCount?: number;
+  // Git links resolved from the task's ticket code (VCS sync). The card shows
+  // the branch it's being built on and the newest commit that mentions it; all
+  // null/0 for projects with no connected repo, and the row is hidden then.
+  gitBranchName?: string | null;
+  gitBranchState?: "open" | "merged" | "deleted" | null;
+  gitCommitSha?: string | null;
+  gitCommitCount?: number;
 };
 
 // "Entered this column on" date for the line above a card's title (dd/mm/yyyy).
@@ -660,6 +668,54 @@ function CardBadges({ task }: { task: BoardTask }) {
   );
 }
 
+// The branch this task is being built on and the newest commit mentioning its
+// ticket code, both resolved by the VCS sync. Sits inline on the card's badge
+// row, and renders nothing unless the task actually has a git link — so boards
+// without a connected repo look untouched. The branch is the flexible part:
+// it truncates first when the row runs out of room, since the sha is fixed
+// width and the whole point of showing it.
+function TaskGitLine({ task }: { task: BoardTask }) {
+  const commitCount = task.gitCommitCount ?? 0;
+  if (!task.gitBranchName && !task.gitCommitSha) return null;
+
+  return (
+    <span className="flex min-w-0 items-center gap-2 normal-case">
+      {task.gitBranchName ? (
+        <span
+          className={cn(
+            "flex min-w-0 items-center gap-1",
+            task.gitBranchState === "deleted" && "line-through opacity-60",
+          )}
+          title={
+            task.gitBranchState === "deleted"
+              ? `Branch ${task.gitBranchName} (deleted on the remote)`
+              : `Branch ${task.gitBranchName}`
+          }
+        >
+          <GitBranch className="size-3.5 shrink-0" />
+          <span className="truncate">{task.gitBranchName}</span>
+        </span>
+      ) : null}
+      {task.gitCommitSha ? (
+        <span
+          className="flex shrink-0 items-center gap-1"
+          title={
+            commitCount > 1
+              ? `Latest of ${commitCount} linked commits — ${task.gitCommitSha}`
+              : `Linked commit ${task.gitCommitSha}`
+          }
+        >
+          <GitCommit className="size-3.5" />
+          {task.gitCommitSha.slice(0, 7)}
+          {commitCount > 1 ? (
+            <span className="opacity-70">+{commitCount - 1}</span>
+          ) : null}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function TaskCardSurface({
   task,
   hrefBase,
@@ -812,7 +868,7 @@ function TaskCardSurface({
       })() : null}
 
       <div className="mt-3 flex items-center justify-between gap-3 font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
-        <span className="inline-flex flex-wrap items-center gap-2">
+        <span className="inline-flex shrink-0 flex-wrap items-center gap-2">
           {task.dueDate ? (
             <span className="inline-flex items-center gap-1">
               <CalendarDots className="size-3.5" />
@@ -831,8 +887,11 @@ function TaskCardSurface({
             {task.commentCount ?? 0}
           </span>
         </span>
-        <span className="text-right">
-          {task.requestCode ? `→ ${task.requestCode}` : null}
+        <span className="flex min-w-0 items-center justify-end gap-2 text-right">
+          <TaskGitLine task={task} />
+          {task.requestCode ? (
+            <span className="shrink-0">→ {task.requestCode}</span>
+          ) : null}
         </span>
       </div>
 

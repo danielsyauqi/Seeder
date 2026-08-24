@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ArrowSquareOut,
   ChatCircleText,
+  GitBranch,
   Kanban,
   NotePencil,
   Plus,
@@ -19,6 +20,7 @@ import {
   SettingsSection,
 } from "@/components/projects/settings-search";
 import { ProjectSlugForm } from "@/components/projects/project-slug-form";
+import { VcsConnectionManager } from "@/components/projects/vcs-connection-manager";
 import { formatRequestCode, formatTaskCode } from "@/lib/codes";
 import { formatProjectStatus } from "@/lib/project-status";
 import { parseRichText, richTextToPlainText } from "@/lib/rich-text";
@@ -34,6 +36,7 @@ import {
 } from "@/lib/actions";
 import type { ProjectWorkspace } from "@/lib/data";
 import { serverEnv } from "@/lib/env";
+import type { VcsConnectionSummary } from "@/lib/services/vcs";
 import { cn, formatDate } from "@/lib/utils";
 
 const badgeClassNames = {
@@ -411,9 +414,16 @@ export function ProjectRequestsSurface({
 export function ProjectSettingsSurface({
   workspace,
   currentPath,
+  canAdminister = false,
+  vcsConnections = [],
 }: {
   workspace: ProjectWorkspace;
   currentPath: string;
+  // Owner-only gate for the Git integration wizard (spec §1.7) — mirrors the
+  // MemberAccessControl pattern (settings/members/page.tsx): computed in the
+  // server page and threaded down, non-admins get a read-only status instead.
+  canAdminister?: boolean;
+  vcsConnections?: VcsConnectionSummary[];
 }) {
   const isArchived = Boolean(workspace.project.archivedAt);
   const shareEnabled = workspace.project.clientShareEnabled;
@@ -558,6 +568,20 @@ export function ProjectSettingsSurface({
               (task.labels ?? []).some((l) => l.id === label.id),
             ).length,
           }))}
+        />
+      </SettingsSection>
+
+      <SettingsSection
+        eyebrow="Integrations"
+        title="Git integration"
+        description="Connect a GitHub or GitLab repo to sync commits and branches, and link them to tasks by ticket code."
+        keywords="github gitlab webhook commit vcs sync git repo branch"
+      >
+        <VcsConnectionManager
+          projectId={workspace.project.id}
+          projectSlug={workspace.project.slug ?? ""}
+          canAdminister={canAdminister}
+          connections={vcsConnections}
         />
       </SettingsSection>
 
@@ -810,6 +834,12 @@ export function ProjectOverviewQuickLinks({
       description: "Use a dedicated note view when you need room to think and write.",
       href: `/projects/${projectId}/notes`,
       icon: NotePencil,
+    },
+    {
+      label: "Git",
+      description: "See recent commits and branches synced from the connected repo.",
+      href: `/projects/${projectId}/git`,
+      icon: GitBranch,
     },
   ];
 

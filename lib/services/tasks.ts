@@ -31,6 +31,7 @@ import {
   getNextTaskSortOrder,
   getProjectInitialStatus,
   getProjectSlug,
+  getTopTaskSortOrder,
   isUniqueConstraintError,
   nextTaskCodeNumber,
   optionalText,
@@ -118,7 +119,10 @@ export async function createTask(
   const branchId = await resolveBranchId(input.branchId, input.projectId);
   // New tasks land in the project's initial column (was: hardcoded "todo").
   const initial = await getProjectInitialStatus(input.projectId);
-  const sortOrder = await getNextTaskSortOrder(
+  // New tasks land at the TOP of the initial column so the latest post — whether
+  // from the web UI or an MCP client — is always the first card. A status *move*
+  // still uses getNextTaskSortOrder (bottom of the new column); see updateTask.
+  const sortOrder = await getTopTaskSortOrder(
     input.projectId,
     initial.statusId,
     branchId,

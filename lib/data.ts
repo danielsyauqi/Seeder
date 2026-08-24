@@ -42,7 +42,12 @@ import {
   taskTaskLabels,
   tasks,
   user,
+  vcsCommits,
+  vcsConnections,
+  vcsRefs,
+  vcsWorkLinks,
 } from "@/lib/db/schema";
+import { summarizeTaskGit } from "@/lib/services/vcs/task-summary";
 import { formatRequestCode, formatTaskCode } from "@/lib/codes";
 import { formatProjectStatus } from "@/lib/project-status";
 import { rewriteRichTextUploadSrc } from "@/lib/rich-text";
@@ -763,6 +768,11 @@ function buildRecentActivity(
     detail: string | null;
     changes: ActivityChange[] | null;
     createdAt: Date;
+    // Only populated for entityType === "commit" (a leftJoin against
+    // vcs_commits on entityId — see the two callers' select()s). Other entity
+    // types leave this null/undefined since their entityId never matches a
+    // vcs_commits.id.
+    commitUrl?: string | null;
   }>,
   options: {
     includeArchived?: boolean;
@@ -789,6 +799,10 @@ function buildRecentActivity(
         href = getRequestHref(activity.projectId, activity.entityId);
       } else if (activity.entityType === "note") {
         href = getNoteHref(activity.projectId);
+      } else if (activity.entityType === "commit") {
+        // External absolute URL (the provider's commit page), not an
+        // internal route — see docs/vcs-sync-phase-0-1-spec.md §1.6.
+        href = activity.commitUrl ?? href;
       }
 
       return {
@@ -1059,9 +1073,14 @@ export async function getRecentActivityForUser(
       detail: projectActivity.detail,
       changes: projectActivity.changes,
       createdAt: projectActivity.createdAt,
+      // Only matches (and is only meaningful) for entityType === "commit" —
+      // entityId is a vcs_commits.id in that case, and any other entity's id
+      // space never collides with it. See buildRecentActivity.
+      commitUrl: vcsCommits.url,
     })
     .from(projectActivity)
     .leftJoin(user, eq(user.id, projectActivity.ownerId))
+    .leftJoin(vcsCommits, eq(vcsCommits.id, projectActivity.entityId))
     .where(and(...clauses))
     .orderBy(desc(projectActivity.createdAt))
     .limit(limit * 3);
@@ -1220,6 +1239,8 @@ export async function getProjectWorkspace(
     labelRows,
     taskLabelRows,
     statusRows,
+    taskRefRows,
+    taskCommitRows,
   ] = await Promise.all([
     db
       .select()
@@ -1281,9 +1302,11 @@ export async function getProjectWorkspace(
         detail: projectActivity.detail,
         changes: projectActivity.changes,
         createdAt: projectActivity.createdAt,
+        commitUrl: vcsCommits.url,
       })
       .from(projectActivity)
       .leftJoin(user, eq(user.id, projectActivity.ownerId))
+      .leftJoin(vcsCommits, eq(vcsCommits.id, projectActivity.entityId))
       .where(eq(projectActivity.projectId, projectId))
       .orderBy(desc(projectActivity.createdAt))
       .limit(24),
@@ -1352,6 +1375,50 @@ export async function getProjectWorkspace(
       .from(taskStatuses)
       .where(eq(taskStatuses.projectId, projectId))
       .orderBy(asc(taskStatuses.sortOrder), asc(taskStatuses.name)),
+    // Git summary for the board cards (branch name + latest commit sha). Both
+    // are project-scoped aggregates grouped by task, in the same shape as the
+    // checklist/comment counts above — never a per-card query. Empty for
+    // projects with no VCS connection, since vcs_work_links only gets rows once
+    // a connection ingests a coded commit/branch.
+    db
+      .select({
+        taskId: vcsWorkLinks.targetId,
+        name: vcsRefs.name,
+        state: vcsRefs.state,
+        updatedAt: vcsRefs.updatedAt,
+      })
+      .from(vcsWorkLinks)
+      .innerJoin(vcsRefs, eq(vcsRefs.id, vcsWorkLinks.gitEntityId))
+      .where(
+        and(
+          eq(vcsWorkLinks.projectId, projectId),
+          eq(vcsWorkLinks.targetType, "task"),
+          eq(vcsWorkLinks.gitEntityType, "ref"),
+        ),
+      ),
+    // `sha` and `ref_name` are bare columns under a single max() aggregate,
+    // which SQLite (D1 and the libsql node runtime alike) resolves to the row
+    // that produced the max — i.e. they come from the newest commit, with no
+    // second query or window function needed. count() alongside it doesn't
+    // disturb that rule.
+    db
+      .select({
+        taskId: vcsWorkLinks.targetId,
+        sha: vcsCommits.sha,
+        refName: vcsCommits.refName,
+        commitCount: count(),
+        latestCommittedAt: sql<number | null>`max(${vcsCommits.committedAt})`,
+      })
+      .from(vcsWorkLinks)
+      .innerJoin(vcsCommits, eq(vcsCommits.id, vcsWorkLinks.gitEntityId))
+      .where(
+        and(
+          eq(vcsWorkLinks.projectId, projectId),
+          eq(vcsWorkLinks.targetType, "task"),
+          eq(vcsWorkLinks.gitEntityType, "commit"),
+        ),
+      )
+      .groupBy(vcsWorkLinks.targetId),
   ]);
 
   // Group label memberships by task so each board task carries its labels.
@@ -1380,8 +1447,19 @@ export async function getProjectWorkspace(
   const publishedUpdateTaskIds = new Set(
     publishedUpdateRows.map((row) => row.taskId),
   );
+  const gitByTask = summarizeTaskGit(
+    taskRefRows,
+    taskCommitRows.map((row) => ({
+      taskId: row.taskId,
+      sha: row.sha,
+      refName: row.refName,
+      commitCount: Number(row.commitCount),
+      latestCommittedAt: row.latestCommittedAt,
+    })),
+  );
   const tasksWithLabels = boardTasks.map((task) => {
     const counts = checklistCountByTask.get(task.id);
+    const git = gitByTask.get(task.id);
     return {
       ...task,
       labels: labelsByTask.get(task.id) ?? [],
@@ -1389,6 +1467,11 @@ export async function getProjectWorkspace(
       subtaskDone: counts?.done ?? 0,
       commentCount: commentCountByTask.get(task.id) ?? 0,
       hasStatusUpdate: publishedUpdateTaskIds.has(task.id),
+      gitBranchName: git?.branchName ?? null,
+      gitBranchState: git?.branchState ?? null,
+      gitBranchCount: git?.branchCount ?? 0,
+      gitCommitSha: git?.commitSha ?? null,
+      gitCommitCount: git?.commitCount ?? 0,
     };
   });
   const activity = buildRecentActivity([project], activityRows, {
@@ -1442,56 +1525,122 @@ export async function getTaskModalDetail(
 ) {
   if (!(await canAccessProject(viewer, projectId))) return null;
   const db = getDb();
-  const [checklistItems, comments, statusUpdateRows] = await Promise.all([
-    db
-      .select()
-      .from(taskChecklistItems)
-      .where(
-        and(
-          eq(taskChecklistItems.projectId, projectId),
-          eq(taskChecklistItems.taskId, taskId),
+  const [
+    checklistItems,
+    comments,
+    statusUpdateRows,
+    linkedCommits,
+    linkedRefs,
+    connectionRows,
+  ] = await Promise.all([
+      db
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.projectId, projectId),
+            eq(taskChecklistItems.taskId, taskId),
+          ),
+        )
+        .orderBy(
+          asc(taskChecklistItems.sortOrder),
+          asc(taskChecklistItems.createdAt),
         ),
-      )
-      .orderBy(
-        asc(taskChecklistItems.sortOrder),
-        asc(taskChecklistItems.createdAt),
-      ),
-    db
-      .select({
-        id: taskComments.id,
-        taskId: taskComments.taskId,
-        content: taskComments.content,
-        authorId: taskComments.authorId,
-        authorName: user.name,
-        authorImage: user.image,
-        createdAt: taskComments.createdAt,
-        updatedAt: taskComments.updatedAt,
-      })
-      .from(taskComments)
-      .innerJoin(user, eq(user.id, taskComments.authorId))
-      .where(
-        and(
-          eq(taskComments.projectId, projectId),
-          eq(taskComments.taskId, taskId),
-        ),
-      )
-      .orderBy(asc(taskComments.createdAt)),
-    db
-      .select()
-      .from(projectStatusUpdates)
-      .where(
-        and(
-          eq(projectStatusUpdates.projectId, projectId),
-          eq(projectStatusUpdates.taskId, taskId),
-        ),
-      )
-      .orderBy(desc(projectStatusUpdates.createdAt))
-      .limit(1),
-  ]);
+      db
+        .select({
+          id: taskComments.id,
+          taskId: taskComments.taskId,
+          content: taskComments.content,
+          authorId: taskComments.authorId,
+          authorName: user.name,
+          authorImage: user.image,
+          createdAt: taskComments.createdAt,
+          updatedAt: taskComments.updatedAt,
+        })
+        .from(taskComments)
+        .innerJoin(user, eq(user.id, taskComments.authorId))
+        .where(
+          and(
+            eq(taskComments.projectId, projectId),
+            eq(taskComments.taskId, taskId),
+          ),
+        )
+        .orderBy(asc(taskComments.createdAt)),
+      db
+        .select()
+        .from(projectStatusUpdates)
+        .where(
+          and(
+            eq(projectStatusUpdates.projectId, projectId),
+            eq(projectStatusUpdates.taskId, taskId),
+          ),
+        )
+        .orderBy(desc(projectStatusUpdates.createdAt))
+        .limit(1),
+      // Development panel (spec §1.7) — commits linked to this task via
+      // vcs_work_links (target_type='task'). Empty when the project has no VCS
+      // connection; no join guard needed since vcs_work_links only ever has
+      // rows once a connection ingests something.
+      db
+        .select({
+          id: vcsCommits.id,
+          sha: vcsCommits.sha,
+          message: vcsCommits.message,
+          authorName: vcsCommits.authorName,
+          authorUsername: vcsCommits.authorUsername,
+          url: vcsCommits.url,
+          committedAt: vcsCommits.committedAt,
+          refName: vcsCommits.refName,
+        })
+        .from(vcsWorkLinks)
+        .innerJoin(vcsCommits, eq(vcsCommits.id, vcsWorkLinks.gitEntityId))
+        .where(
+          and(
+            eq(vcsWorkLinks.projectId, projectId),
+            eq(vcsWorkLinks.targetType, "task"),
+            eq(vcsWorkLinks.targetId, taskId),
+            eq(vcsWorkLinks.gitEntityType, "commit"),
+          ),
+        )
+        .orderBy(desc(vcsCommits.committedAt)),
+      // Branches linked to this task (link mode 'branch' links the ref itself,
+      // spec §0). Separate from the internal `branches` entity — see vcsRefs.
+      db
+        .select({
+          id: vcsRefs.id,
+          name: vcsRefs.name,
+          state: vcsRefs.state,
+          url: vcsRefs.url,
+          headSha: vcsRefs.headSha,
+        })
+        .from(vcsWorkLinks)
+        .innerJoin(vcsRefs, eq(vcsRefs.id, vcsWorkLinks.gitEntityId))
+        .where(
+          and(
+            eq(vcsWorkLinks.projectId, projectId),
+            eq(vcsWorkLinks.targetType, "task"),
+            eq(vcsWorkLinks.targetId, taskId),
+            eq(vcsWorkLinks.gitEntityType, "ref"),
+          ),
+        )
+        .orderBy(desc(vcsRefs.updatedAt)),
+      // Drives the Details/Git switcher in the modal sidebar: a connected
+      // project shows the Git view (with an empty state explaining the ticket
+      // code convention) even before any commit has been linked, while an
+      // unconnected project doesn't show the toggle at all.
+      db
+        .select({ id: vcsConnections.id })
+        .from(vcsConnections)
+        .where(eq(vcsConnections.projectId, projectId))
+        .limit(1),
+    ]);
   return {
     checklistItems,
     comments,
     publishedUpdate: statusUpdateRows[0] ?? null,
+    linkedCommits,
+    linkedRefs,
+    hasVcsConnection: connectionRows.length > 0,
   };
 }
 
@@ -2342,9 +2491,13 @@ export async function listProjectActivity(
       detail: projectActivity.detail,
       changes: projectActivity.changes,
       createdAt: projectActivity.createdAt,
+      // Only matches (and is only meaningful) for entityType === "commit" —
+      // entityId is a vcs_commits.id in that case. See §1.6.
+      commitUrl: vcsCommits.url,
     })
     .from(projectActivity)
     .leftJoin(user, eq(user.id, projectActivity.ownerId))
+    .leftJoin(vcsCommits, eq(vcsCommits.id, projectActivity.entityId))
     .where(and(...clauses))
     .orderBy(desc(projectActivity.createdAt))
     .limit(limit);
@@ -2357,6 +2510,8 @@ export async function listProjectActivity(
       href = getRequestHref(projectId, row.entityId);
     } else if (row.entityType === "note") {
       href = getNoteHref(projectId);
+    } else if (row.entityType === "commit") {
+      href = row.commitUrl ?? href;
     }
     return {
       id: row.id,

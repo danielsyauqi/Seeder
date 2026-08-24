@@ -91,9 +91,17 @@ import {
   renameBranch as renameBranchService,
 } from "@/lib/services/branches";
 import { moveProjectToSpace as moveProjectToSpaceService } from "@/lib/services/spaces";
+import { parseRepositoryUrl } from "@/lib/services/vcs/repo-url";
+import {
+  createConnection as createVcsConnectionService,
+  deleteConnection as deleteVcsConnectionService,
+  syncNow as syncVcsConnectionService,
+  updateConnection as updateVcsConnectionService,
+} from "@/lib/services/vcs";
 import {
   assertProjectCapability,
   getProjectInitialStatus,
+  getTopTaskSortOrder,
   resolveDefaultBranchId,
 } from "@/lib/services/_shared";
 import { isValidProjectColor } from "@/lib/swatches";
@@ -112,6 +120,8 @@ import {
   tasks,
   taskStatusValues,
   user,
+  vcsLinkModeValues,
+  vcsProviderValues,
 } from "@/lib/db/schema";
 import { parseRichText, richTextIsEmpty, richTextToPlainText } from "@/lib/rich-text";
 import { formatDateKey, parseDateKey } from "@/lib/daily";
@@ -351,29 +361,6 @@ async function loadProjectTask(taskId: string, projectId: string) {
   return task;
 }
 
-async function getNextTaskSortOrder(
-  projectId: string,
-  statusId: string,
-  branchId: string,
-) {
-  const db = getDb();
-  const [latest] = await db
-    .select({
-      sortOrder: tasks.sortOrder,
-    })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.projectId, projectId),
-        eq(tasks.branchId, branchId),
-        eq(tasks.statusId, statusId),
-      ),
-    )
-    .orderBy(desc(tasks.sortOrder))
-    .limit(1);
-
-  return (latest?.sortOrder ?? -1) + 1;
-}
 
 function toPayload(formData: FormData) {
   return Object.fromEntries(formData.entries());
@@ -403,6 +390,7 @@ function revalidateProjectViews(
     notes?: boolean;
     settings?: boolean;
     clientBoard?: boolean;
+    git?: boolean;
   } = {},
 ) {
   const basePath = `/projects/${projectId}`;
@@ -439,6 +427,10 @@ function revalidateProjectViews(
     // The public board is addressed by share token, not project id, so
     // revalidate the dynamic route itself.
     revalidatePath("/client/[token]", "page");
+  }
+
+  if (options.git) {
+    revalidatePath(`${basePath}/git`);
   }
 }
 
@@ -600,6 +592,108 @@ export async function deleteBranchAction(formData: FormData) {
   });
   revalidatePath(`/projects/${payload.projectId}/branches`);
   redirect(withFlash(`/projects/${payload.projectId}/branches`, "branch-deleted"));
+}
+
+// ---- VCS connections (Git integration, spec §1.7) ---------------------------
+// Return values (unlike the fire-and-forget branch actions above) so the
+// client-side setup wizard can capture the one-time webhook secret and the
+// connection-list UI can update in place — same convention as
+// createTaskCategoryAction / updateTaskCategoryAction.
+
+const vcsConnectionCreateSchema = z.object({
+  projectId: z.string().min(1),
+  provider: z.enum(vcsProviderValues),
+  repositoryUrl: z.string().trim().min(1),
+  accessToken: z.string().trim().min(1),
+  linkMode: z.enum(vcsLinkModeValues),
+});
+
+const vcsConnectionUpdateSchema = z.object({
+  projectId: z.string().min(1),
+  connectionId: z.string().min(1),
+  linkMode: z.enum(vcsLinkModeValues),
+});
+
+const vcsConnectionRefSchema = z.object({
+  projectId: z.string().min(1),
+  connectionId: z.string().min(1),
+});
+
+export async function createVcsConnectionAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = vcsConnectionCreateSchema.parse(toPayload(formData));
+
+  // Authoritative parse — the wizard already previews this client-side, but
+  // that's UX only; a direct call (or a stale client bundle) must still be
+  // rejected here rather than trusting a pre-split owner/repo/baseUrl.
+  const repo = parseRepositoryUrl(payload.repositoryUrl, payload.provider);
+  if (!repo) {
+    throw new Error(
+      "Paste a full repository link, e.g. https://github.com/owner/repo or https://gitlab.com/owner/repo.",
+    );
+  }
+
+  const { connection, receiverUrl, webhookSecret } = await createVcsConnectionService(
+    viewer,
+    {
+      projectId: payload.projectId,
+      provider: payload.provider,
+      baseUrl: repo.baseUrl,
+      owner: repo.owner,
+      repo: repo.repo,
+      accessToken: payload.accessToken,
+      linkMode: payload.linkMode,
+    },
+  );
+
+  // Spec §1.5: backfill runs on connect as well as on "Sync now". Best-effort —
+  // a bad PAT or unreachable forge must not fail connection creation, and the
+  // webhook receiver keeps the connection healthy without it.
+  try {
+    await syncVcsConnectionService(viewer, { connectionId: connection.id });
+  } catch {
+    // degrade to webhook-only; the settings row's "Sync now" can retry
+  }
+
+  revalidateProjectViews(payload.projectId, { settings: true, git: true });
+
+  return { connection, receiverUrl, webhookSecret };
+}
+
+export async function updateVcsConnectionAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = vcsConnectionUpdateSchema.parse(toPayload(formData));
+
+  const connection = await updateVcsConnectionService(viewer, {
+    connectionId: payload.connectionId,
+    linkMode: payload.linkMode,
+  });
+
+  revalidateProjectViews(payload.projectId, { settings: true, git: true });
+
+  return connection;
+}
+
+export async function deleteVcsConnectionAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = vcsConnectionRefSchema.parse(toPayload(formData));
+
+  await deleteVcsConnectionService(viewer, { connectionId: payload.connectionId });
+
+  revalidateProjectViews(payload.projectId, { settings: true, git: true });
+}
+
+export async function syncVcsConnectionAction(formData: FormData) {
+  const viewer = await requireViewer();
+  const payload = vcsConnectionRefSchema.parse(toPayload(formData));
+
+  const result = await syncVcsConnectionService(viewer, {
+    connectionId: payload.connectionId,
+  });
+
+  revalidateProjectViews(payload.projectId, { settings: true, git: true });
+
+  return result;
 }
 
 export async function updateProjectAction(formData: FormData) {
@@ -1067,7 +1161,7 @@ export async function convertRequestToTaskAction(formData: FormData) {
     const branchId =
       request.branchId ?? (await resolveDefaultBranchId(payload.projectId));
     const initial = await getProjectInitialStatus(payload.projectId);
-    const sortOrder = await getNextTaskSortOrder(
+    const sortOrder = await getTopTaskSortOrder(
       payload.projectId,
       initial.statusId,
       branchId,
@@ -2027,7 +2121,7 @@ export async function createDailyTaskAction(formData: FormData) {
       const project = await assertProjectTaskAccess(viewer, projectId);
       const branchId = await resolveDefaultBranchId(projectId);
       const initial = await getProjectInitialStatus(projectId);
-      const sortOrder = await getNextTaskSortOrder(
+      const sortOrder = await getTopTaskSortOrder(
         projectId,
         initial.statusId,
         branchId,
@@ -2306,7 +2400,7 @@ export async function adminCreateDailyTaskForUsersAction(formData: FormData) {
     ) {
       const branchId = await resolveDefaultBranchId(project.id);
       const initial = await getProjectInitialStatus(project.id);
-      const sortOrder = await getNextTaskSortOrder(
+      const sortOrder = await getTopTaskSortOrder(
         project.id,
         initial.statusId,
         branchId,
