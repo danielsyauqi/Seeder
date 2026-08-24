@@ -14,6 +14,11 @@ import {
 } from "@phosphor-icons/react";
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  MCP_CLIENTS,
+  buildMcpClientSetup,
+  type McpClientId,
+} from "@/lib/mcp-client-setup";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { TokenListItem } from "@/lib/data-tokens";
@@ -264,7 +269,8 @@ function CreateTokenModal({
   const [expiryDays, setExpiryDays] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [activeClient, setActiveClient] = useState<McpClientId>("claude");
+  const [copied, setCopied] = useState<"token" | "setup" | null>(null);
 
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://your-domain";
@@ -302,32 +308,32 @@ function CreateTokenModal({
     }
   }
 
-  async function copyToken() {
-    if (!created) return;
+  async function copyText(
+    value: string,
+    target: "token" | "setup",
+    label: string,
+  ) {
     try {
-      await navigator.clipboard.writeText(created);
-      setCopied(true);
-      toast("Token copied", "success");
-      window.setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(value);
+      setCopied(target);
+      toast(`${label} copied`, "success");
+      window.setTimeout(
+        () => setCopied((current) => (current === target ? null : current)),
+        2000,
+      );
     } catch {
       toast("Copy failed — select the text and copy manually", "danger");
     }
   }
 
+  async function copyToken() {
+    if (!created) return;
+    await copyText(created, "token", "Token");
+  }
+
   if (typeof document === "undefined") return null;
 
-  const snippet = JSON.stringify(
-    {
-      mcpServers: {
-        seeder: {
-          url: `${origin}/api/mcp`,
-          headers: { Authorization: `Bearer ${created ?? "seed_pat_…"}` },
-        },
-      },
-    },
-    null,
-    2,
-  );
+  const setup = buildMcpClientSetup(activeClient, origin);
 
   return createPortal(
     <div className="fixed inset-0 z-[55] p-4 sm:p-6">
@@ -338,13 +344,24 @@ function CreateTokenModal({
         className="ui-modal-backdrop absolute inset-0 bg-[rgba(10,10,10,0.44)] backdrop-blur-xs"
       />
       <div className="relative flex min-h-full items-end justify-center sm:items-center">
-        <div className="ui-modal-panel relative max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-md border border-border bg-surface-strong p-5 shadow-xl sm:p-6">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-token-dialog-title"
+          className={cn(
+            "ui-modal-panel relative max-h-[90dvh] w-full overflow-y-auto rounded-md border border-border bg-surface-strong p-5 shadow-xl sm:p-6",
+            created ? "max-w-2xl" : "max-w-lg",
+          )}
+        >
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
               <p className="font-mono text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
                 Settings · API tokens
               </p>
-              <h3 className="mt-2 text-[1.2rem] font-medium tracking-[-0.022em] text-foreground">
+              <h3
+                id="create-token-dialog-title"
+                className="mt-2 text-[1.2rem] font-medium tracking-[-0.022em] text-foreground"
+              >
                 {created ? "Copy your token" : "New token"}
               </h3>
             </div>
@@ -364,13 +381,14 @@ function CreateTokenModal({
                 <CheckCircle className="mt-0.5 size-4 shrink-0 text-accent" />
                 <span>
                   Copy this token now — for security it{" "}
-                  <strong>won&apos;t be shown again</strong>. Store it in your MCP
-                  client config.
+                  <strong>won&apos;t be shown again</strong>. Store it securely
+                  before continuing.
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <input
                   readOnly
+                  aria-label="New personal access token"
                   value={created}
                   onFocus={(e) => e.currentTarget.select()}
                   className="ui-input min-w-0 flex-1 font-mono text-[12px]"
@@ -380,21 +398,103 @@ function CreateTokenModal({
                   onClick={copyToken}
                   className="ui-button-secondary shrink-0 px-3"
                 >
-                  {copied ? (
+                  {copied === "token" ? (
                     <CheckCircle className="size-4 text-accent" />
                   ) : (
                     <Copy className="size-4" />
                   )}
-                  {copied ? "Copied" : "Copy"}
+                  {copied === "token" ? "Copied" : "Copy"}
                 </button>
               </div>
+
+              <div className="rounded-md border border-border bg-background px-3 py-2.5 text-[12px] leading-5 text-muted">
+                Make this token available to your coding client as{" "}
+                <code className="font-mono text-foreground">SEEDER_PAT</code>{" "}
+                before using the matching setup below. Never commit the token or
+                paste it into logs and issue reports.
+              </div>
+
               <div className="min-w-0 rounded-md border border-border bg-surface p-3">
-                <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-muted">
-                  MCP client config (Claude, Cursor, …)
-                </p>
-                <pre className="mt-2 max-w-full overflow-x-auto whitespace-pre font-mono text-[11px] leading-5 text-foreground">
-                  {snippet}
-                </pre>
+                <div
+                  role="tablist"
+                  aria-label="MCP client setup"
+                  className="flex gap-1 overflow-x-auto rounded-md border border-border bg-background p-1"
+                >
+                  {MCP_CLIENTS.map((client) => {
+                    const isActive = client.id === activeClient;
+                    return (
+                      <button
+                        key={client.id}
+                        type="button"
+                        role="tab"
+                        id={`mcp-client-tab-${client.id}`}
+                        aria-controls="mcp-client-setup-panel"
+                        aria-selected={isActive}
+                        onClick={() => setActiveClient(client.id)}
+                        className={cn(
+                          "min-w-max flex-1 rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.06em] transition",
+                          isActive
+                            ? "bg-surface-strong text-foreground shadow-sm"
+                            : "text-muted hover:text-foreground",
+                        )}
+                      >
+                        {client.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div
+                  id="mcp-client-setup-panel"
+                  role="tabpanel"
+                  aria-labelledby={`mcp-client-tab-${activeClient}`}
+                  className="mt-3 min-w-0"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                        {setup.label}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[11px] text-foreground">
+                        {setup.destination}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        copyText(
+                          setup.snippet,
+                          "setup",
+                          `${setup.destination} setup`,
+                        )
+                      }
+                      className="ui-button-secondary shrink-0 px-3 py-1.5 text-[12px]"
+                    >
+                      {copied === "setup" ? (
+                        <CheckCircle className="size-4 text-accent" />
+                      ) : (
+                        <Copy className="size-4" />
+                      )}
+                      {copied === "setup" ? "Copied" : "Copy setup"}
+                    </button>
+                  </div>
+
+                  <pre className="mt-3 max-w-full overflow-x-auto whitespace-pre rounded-md border border-border bg-background p-3 font-mono text-[11px] leading-5 text-foreground">
+                    {setup.snippet}
+                  </pre>
+
+                  <p className="mt-3 text-[12px] leading-5 text-muted">
+                    {setup.note}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-3 text-[11px] text-muted">
+                    <span className="font-mono uppercase tracking-[0.06em]">
+                      Verify
+                    </span>
+                    <code className="rounded-sm bg-background px-1.5 py-0.5 font-mono text-foreground">
+                      {setup.verify}
+                    </code>
+                  </div>
+                </div>
               </div>
               <button
                 type="button"
