@@ -117,6 +117,16 @@ A massive thank you to **Thaqif Rosdi ([@takippu](https://github.com/takippu))**
 Seeder grew out of his original idea, first built as **northstar-pm**, and it
 wouldn't exist without it. 🙏
 
+### Contributors
+
+<a href="https://github.com/mjsarfatti">
+  <img src="https://avatars.githubusercontent.com/mjsarfatti?size=144" width="72" height="72" alt="Manuele J. Sarfatti (@mjsarfatti)" />
+</a>
+
+**[Manuele J. Sarfatti (@mjsarfatti)](https://github.com/mjsarfatti)** —
+contributed the responsive Kanban layout fix and the navigation progress
+experience.
+
 ## License
 
 [MIT](LICENSE) © 2026 Daniel Syauqi ([@danielsyauqi](https://github.com/danielsyauqi)) and Thaqif Rosdi ([@takippu](https://github.com/takippu))
