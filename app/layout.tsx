@@ -4,6 +4,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, IBM_Plex_Mono } from "next/font/google";
 import { BuildRefreshGuard } from "@/components/app/build-refresh-guard";
+import { Providers } from "@/app/providers";
 import {
   PREVIEW_DEFAULTS,
   SYSTEM_DESCRIPTION,
@@ -118,7 +119,7 @@ export default async function RootLayout({
       </head>
       <body className="min-h-full flex flex-col text-foreground">
         <BuildRefreshGuard />
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
