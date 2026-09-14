@@ -9,6 +9,8 @@ cp .env.example .env
 Edit `.env` — set at minimum:
 - `OWNER_EMAIL` — your email (first sign-in creates the owner account)
 - `BETTER_AUTH_SECRET` — `openssl rand -base64 32`
+- `VCS_ENCRYPTION_KEY` — generate separately with `openssl rand -base64 32`;
+  required in production from 2.1, even without a connected Git repository.
 
 ## 2. Run (pre-built image from GHCR)
 

@@ -17,6 +17,7 @@ const env: NodeEnv = {
   HOSTNAME: "127.0.0.1",
   BETTER_AUTH_URL: "https://seeder.example.com",
   BETTER_AUTH_SECRET: "s3cr3t-value",
+  VCS_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
   OWNER_EMAIL: "owner@example.com",
   SQLITE_DB_PATH: "./data/seeder.db",
   UPLOADS_DIR: "./data/uploads",
@@ -43,6 +44,9 @@ describe("pm2Ecosystem", () => {
     expect(mod.exports.apps).toHaveLength(1);
     expect(mod.exports.apps?.[0].exec_mode).toBe("fork");
     expect(mod.exports.apps?.[0].instances).toBe(1);
+    expect(mod.exports.apps?.[0].env).toMatchObject({
+      VCS_ENCRYPTION_KEY: env.VCS_ENCRYPTION_KEY,
+    });
   });
 });
 

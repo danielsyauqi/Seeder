@@ -47,6 +47,10 @@ stance:
 
 ## Quick start
 
+**Seeder 2.1:** GitHub/GitLab integration, commit details on task cards, guided
+MCP client setup, and smoother navigation. See the [release notes](CHANGELOG.md)
+for features and required upgrade steps.
+
 ```bash
 npm install
 npm run setup   # interactive wizard: dev / production (node) / production (cloudflare)
@@ -116,6 +120,16 @@ Please report vulnerabilities privately via the process in
 A massive thank you to **Thaqif Rosdi ([@takippu](https://github.com/takippu))** —
 Seeder grew out of his original idea, first built as **northstar-pm**, and it
 wouldn't exist without it. 🙏
+
+### Contributors
+
+<a href="https://github.com/mjsarfatti">
+  <img src="https://avatars.githubusercontent.com/mjsarfatti?size=144" width="72" height="72" alt="Manuele J. Sarfatti (@mjsarfatti)" />
+</a>
+
+**[Manuele J. Sarfatti (@mjsarfatti)](https://github.com/mjsarfatti)** —
+contributed the responsive Kanban layout fix and the navigation progress
+experience.
 
 ## License
 

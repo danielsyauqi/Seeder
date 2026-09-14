@@ -9,6 +9,7 @@
 // authz, and activity logging as the web app.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import packageInfo from "@/package.json";
 
 import type { Viewer } from "@/lib/auth-server";
 import type { TokenAuth } from "@/lib/auth-token";
@@ -248,7 +249,7 @@ async function runWrite(fn: () => Promise<unknown>) {
 }
 
 export function buildServer({ viewer, scope }: TokenAuth): McpServer {
-  const server = new McpServer({ name: "seeder", version: "0.1.0" });
+  const server = new McpServer({ name: "seeder", version: packageInfo.version });
 
   server.registerTool(
     "whoami",

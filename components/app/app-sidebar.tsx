@@ -1,7 +1,15 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import Link, { useLinkStatus } from "next/link";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { usePathname } from "next/navigation";
 import {
   DndContext,
@@ -72,9 +80,48 @@ type AppSidebarProps = {
 const SIDEBAR_RENDER_VERSION = "2026-05-04.3";
 const SIDEBAR_PROJECT_CAP = 8;
 
+// Which sidebar link href is mid-navigation. Drives the optimistic active row.
+// Written only by PendingNavReporter, from each Link's own navigation status.
+const SidebarNavContext = createContext<{
+  pendingHref: string | null;
+  setPendingHref: Dispatch<SetStateAction<string | null>>;
+}>({ pendingHref: null, setPendingHref: () => {} });
+
+/**
+ * Publishes the enclosing Link's href while its navigation is in flight.
+ *
+ * Renders nothing. It must be a child of the Link it reports for, because
+ * `useLinkStatus` reads the status context that Link provides. The pending
+ * flag follows the navigation itself, so it clears on every outcome that
+ * ends the transition: a committed route, an error boundary, a fallback to
+ * a full document load, or preemption by a later click.
+ *
+ * @example
+ * <Link href={href}>
+ *   <PendingNavReporter href={href} />
+ *   {label}
+ * </Link>
+ */
+function PendingNavReporter({ href }: { href: string }) {
+  const { pending } = useLinkStatus();
+  const { setPendingHref } = useContext(SidebarNavContext);
+
+  useEffect(() => {
+    if (!pending) return;
+    setPendingHref(href);
+    // A later click owns the slot from here on, so only release what is ours.
+    return () => setPendingHref((current) => (current === href ? null : current));
+  }, [pending, href, setPendingHref]);
+
+  return null;
+}
+
 // One draggable row in the sidebar Project List. The whole row is the sortable
 // node; a grip handle (shown on hover, desktop only) carries the drag listeners
 // so the card's link stays clickable and touch-scrolling the sidebar still works.
+//
+// On click the row shows its active treatment and a pulse right away; the
+// previously-active row drops its treatment until the navigation ends.
 function SidebarProjectRow({
   project,
   href,
@@ -95,12 +142,15 @@ function SidebarProjectRow({
     transition,
     isDragging,
   } = useSortable({ id: project.id, disabled: !draggable });
+  const { pendingHref } = useContext(SidebarNavContext);
+  const pending = pendingHref === href;
+  const active = pending || (isActive && !pendingHref);
 
   const hasColor = Boolean(project.color);
   // Colored rows: soft tint when idle, deepen + invert text to white when
   // active. Token rescope cascades to text-foreground / -muted-strong / -muted.
   const colorStyle: React.CSSProperties | undefined = hasColor
-    ? isActive
+    ? active
       ? {
           backgroundColor: project.color!,
           ["--foreground" as never]: "#ffffff",
@@ -122,17 +172,19 @@ function SidebarProjectRow({
         href={href}
         className={cn(
           "relative block rounded-sm py-1.5 pl-3 pr-2 transition",
-          isActive
+          active
             ? hasColor
               ? null
               : "bg-accent-soft"
             : hasColor
               ? null
               : "hover:bg-surface",
+          pending && "animate-pulse motion-reduce:animate-none",
         )}
         style={colorStyle}
       >
-        {isActive && !hasColor ? (
+        <PendingNavReporter href={href} />
+        {active && !hasColor ? (
           <span
             aria-hidden
             className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent animate-breathe"
@@ -143,7 +195,7 @@ function SidebarProjectRow({
             <p
               className={cn(
                 "truncate text-[13px] font-medium",
-                isActive ? "text-foreground" : "text-muted-strong",
+                active ? "text-foreground" : "text-muted-strong",
               )}
             >
               {project.name}
@@ -204,6 +256,16 @@ export function AppSidebar({
   );
   const [isNotificationsLoading, setIsNotificationsLoading] = useState(false);
   const [notificationsError, setNotificationsError] = useState<string | null>(null);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  // The Workspace/Admin toggle follows the pending sidebar link, so the side
+  // being navigated to reads as selected right away.
+  const showAdminMode = pendingHref
+    ? pendingHref.startsWith("/admin")
+    : isAdminMode;
+  const navContextValue = useMemo(
+    () => ({ pendingHref, setPendingHref }),
+    [pendingHref],
+  );
 
   // Personal sidebar project order (drag-to-rearrange). Optimistic local copy of
   // the server-sorted list; resynced when the server order/membership changes.
@@ -380,7 +442,7 @@ export function AppSidebar({
   };
 
   return (
-    <>
+    <SidebarNavContext.Provider value={navContextValue}>
       {/* Mobile top bar — hamburger opens the drawer; hidden at md+. */}
       <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border bg-background px-3 py-2 md:hidden">
         <button
@@ -529,7 +591,7 @@ export function AppSidebar({
             </h1>
             <p className="mt-1 max-w-[220px] text-[13px] leading-6 text-muted">
               {isAdminMode
-                ? "Invitations, members, and audit logs in one place."
+                ? "Invitations, members, audit logs."
                 : "Clear queues, no dashboard noise."}
             </p>
           </div>
@@ -542,22 +604,28 @@ export function AppSidebar({
                 href="/dashboard"
                 className={cn(
                   "flex-1 rounded-sm px-3 py-1.5 text-center text-[12px] font-medium transition",
-                  isAdminMode
+                  showAdminMode
                     ? "text-muted hover:text-foreground"
                     : "bg-accent text-white",
+                  pendingHref === "/dashboard" &&
+                    "animate-pulse motion-reduce:animate-none",
                 )}
               >
+                <PendingNavReporter href="/dashboard" />
                 Workspace
               </Link>
               <Link
                 href="/admin/dashboard"
                 className={cn(
                   "flex-1 rounded-sm px-3 py-1.5 text-center text-[12px] font-medium transition",
-                  isAdminMode
+                  showAdminMode
                     ? "bg-accent text-white"
                     : "text-muted hover:text-foreground",
+                  pendingHref === "/admin/dashboard" &&
+                    "animate-pulse motion-reduce:animate-none",
                 )}
               >
+                <PendingNavReporter href="/admin/dashboard" />
                 Admin
               </Link>
             </div>
@@ -937,7 +1005,7 @@ export function AppSidebar({
           </div>
         </div>
       ) : null}
-    </>
+    </SidebarNavContext.Provider>
   );
 }
 
@@ -961,6 +1029,9 @@ function NavSection({ label, first }: { label: string; first?: boolean }) {
 // One sidebar nav row. The label is wrapped in `.sidebar-collapsible` so CSS
 // hides it in the collapsed rail (leaving the centered icon); `title` gives a
 // native tooltip when collapsed.
+//
+// On click the row shows its active treatment and a pulse right away; the
+// previously-active row drops its treatment until the navigation ends.
 function NavItem({
   href,
   icon: Icon,
@@ -972,17 +1043,22 @@ function NavItem({
   label: string;
   active: boolean;
 }) {
+  const { pendingHref } = useContext(SidebarNavContext);
+  const pending = pendingHref === href;
+  const showActive = pending || (active && !pendingHref);
   return (
     <Link
       href={href}
       title={label}
       className={cn(
         "sidebar-navlink flex min-h-8 items-center gap-2.5 rounded-sm px-2 py-1.5 text-[13px] font-medium transition",
-        active
+        showActive
           ? "bg-accent-soft text-foreground"
           : "text-muted hover:bg-surface hover:text-foreground",
+        pending && "animate-pulse motion-reduce:animate-none",
       )}
     >
+      <PendingNavReporter href={href} />
       <Icon className="size-4 shrink-0" />
       <span className="sidebar-collapsible">{label}</span>
     </Link>

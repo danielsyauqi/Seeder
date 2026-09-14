@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useRouter } from "@bprogress/next/app";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const CHORD_TIMEOUT_MS = 1000;

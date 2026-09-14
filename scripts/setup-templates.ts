@@ -12,6 +12,7 @@ export type NodeEnv = {
   HOSTNAME: string;
   BETTER_AUTH_URL: string;
   BETTER_AUTH_SECRET: string;
+  VCS_ENCRYPTION_KEY: string;
   OWNER_EMAIL: string;
   SQLITE_DB_PATH: string;
   UPLOADS_DIR: string;

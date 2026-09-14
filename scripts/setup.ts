@@ -184,6 +184,7 @@ async function setupDev() {
     NEXTJS_ENV: "development",
     OWNER_EMAIL: ownerEmail,
     BETTER_AUTH_SECRET: generateSecret(),
+    VCS_ENCRYPTION_KEY: generateSecret(),
     ...integrations,
   });
 
@@ -213,10 +214,12 @@ async function setupNode() {
   const pmChoice = await ask("Choose", "1");
 
   const secret = generateSecret();
+  const vcsEncryptionKey = generateSecret();
   writeEnvFile(".env", {
     RUNTIME: "node",
     OWNER_EMAIL: ownerEmail,
     BETTER_AUTH_SECRET: secret,
+    VCS_ENCRYPTION_KEY: vcsEncryptionKey,
     BETTER_AUTH_URL: appUrl,
     SQLITE_DB_PATH: dbPath,
     UPLOADS_DIR: uploadsDir,
@@ -241,6 +244,7 @@ async function setupNode() {
     HOSTNAME: "127.0.0.1",
     BETTER_AUTH_URL: appUrl,
     BETTER_AUTH_SECRET: secret,
+    VCS_ENCRYPTION_KEY: vcsEncryptionKey,
     OWNER_EMAIL: ownerEmail,
     SQLITE_DB_PATH: dbPath,
     UPLOADS_DIR: uploadsDir,
@@ -325,7 +329,7 @@ async function setupCloudflare() {
   ]);
 
   // Secrets / runtime config — never committed to the repo.
-  if (await confirm("Set Worker secrets (BETTER_AUTH_SECRET/URL, OWNER_EMAIL) now?")) {
+  if (await confirm("Set Worker secrets (BETTER_AUTH_SECRET/URL, VCS_ENCRYPTION_KEY, OWNER_EMAIL) now?")) {
     const putSecret = (name: string, value: string) => {
       console.log(`  $ npx wrangler secret put ${name}`);
       execFileSync("npx", ["wrangler", "secret", "put", name], {
@@ -336,6 +340,7 @@ async function setupCloudflare() {
     };
     try {
       putSecret("BETTER_AUTH_SECRET", secret);
+      putSecret("VCS_ENCRYPTION_KEY", generateSecret());
       putSecret("BETTER_AUTH_URL", appUrl);
       putSecret("OWNER_EMAIL", ownerEmail);
       for (const [name, value] of Object.entries(integrations)) {
