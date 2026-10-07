@@ -2,9 +2,10 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { SignInPanel } from "@/components/auth/sign-in-panel";
+import { hasRegisteredUser } from "@/lib/auth-bootstrap";
 import { getViewer } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
-import { invitations, user } from "@/lib/db/schema";
+import { invitations } from "@/lib/db/schema";
 import { serverEnv } from "@/lib/env";
 import { brandingUrl, getSystemSettings } from "@/lib/system-settings";
 
@@ -50,12 +51,11 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
 
   const db = getDb();
 
-  // A fresh instance (zero users) shows the one-time "create owner account"
-  // form. The auth create hook (lib/auth.ts) enforces the same zero-user +
-  // OWNER_EMAIL gate server-side; this just drives the UI. Once the owner
-  // exists, the panel is the normal invite-only sign-in form.
-  const [anyUser] = await db.select({ id: user.id }).from(user).limit(1);
-  const allowFirstOwner = !anyUser;
+  // A fresh instance (no registered users) shows the one-time "create owner
+  // account" form. The auth create hook (lib/auth.ts) enforces the same
+  // registered-user and OWNER_EMAIL gates server-side; this just drives the UI.
+  // Once the owner exists, the panel is the normal invite-only sign-in form.
+  const allowFirstOwner = !(await hasRegisteredUser());
 
   let invitePreview: { token: string; email: string } | null = null;
 
