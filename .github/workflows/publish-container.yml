@@ -84,6 +84,7 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
             ${{ vars.DOCKER_USERNAME }}/seeder-oss
+          flavor: latest=false
           tags: |
             type=raw,value=latest,enable=${{ steps.tags.outputs.is_main }}
             type=raw,value=${{ steps.tags.outputs.version }},enable=${{ steps.tags.outputs.is_release }}
