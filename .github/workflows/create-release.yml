@@ -1,0 +1,213 @@
+name: Create release from main
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seeder-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - name: Require public main
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo 'Run this workflow from main.' >&2
+            exit 1
+          fi
+
+      - name: Check landing page connection
+        env:
+          SITE_TOKEN: ${{ secrets.SEEDER_WEB_DISPATCH_TOKEN }}
+          SITE_REPO: ${{ vars.SEEDER_WEB_REPO }}
+        run: |
+          if [ -z "$SITE_TOKEN" ] || [ -z "$SITE_REPO" ]; then
+            echo 'Set SEEDER_WEB_DISPATCH_TOKEN secret and SEEDER_WEB_REPO variable.' >&2
+            exit 1
+          fi
+          GH_TOKEN="$SITE_TOKEN" gh workflow view deploy-release.yml \
+            --repo "$SITE_REPO" >/dev/null
+
+      - name: Check out release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Resolve version
+        id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          lock_version=$(node -p "require('./package-lock.json').version")
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a stable X.Y.Z package version, got: $version" >&2
+            exit 1
+          fi
+          if [ "$version" != "$lock_version" ]; then
+            echo 'package.json and package-lock.json versions differ.' >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check release ref
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$TAG is already released." >&2
+            exit 1
+          fi
+
+          remote_refs=$(git ls-remote origin refs/heads/main "refs/tags/$TAG" "refs/tags/$TAG^{}")
+          main_commit=$(printf '%s\n' "$remote_refs" | awk '$2 == "refs/heads/main" { print $1 }')
+          if [ "$main_commit" != "$GITHUB_SHA" ]; then
+            echo 'main moved after this workflow started. Run it again from the new head.' >&2
+            exit 1
+          fi
+
+          tag_commit=$(printf '%s\n' "$remote_refs" | awk -v ref="refs/tags/$TAG^{}" '$2 == ref { print $1 }')
+          if [ -z "$tag_commit" ]; then
+            tag_commit=$(printf '%s\n' "$remote_refs" | awk -v ref="refs/tags/$TAG" '$2 == ref { print $1 }')
+          fi
+          if [ -n "$tag_commit" ] && [ "$tag_commit" != "$GITHUB_SHA" ]; then
+            echo "$TAG already points to another commit." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm test
+      - name: Build Cloudflare Worker
+        run: npx opennextjs-cloudflare build
+      - name: Check Worker excludes libSQL
+        run: |
+          if [ -n "$(find .open-next -iname '*libsql*' -print -quit)" ]; then
+            echo 'The Cloudflare bundle contains libSQL files.' >&2
+            exit 1
+          fi
+      - name: Build Node
+        run: npm run build:node
+
+  tag:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+
+      - name: Tag release commit
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: |
+          remote_refs=$(git ls-remote origin refs/heads/main "refs/tags/$TAG" "refs/tags/$TAG^{}")
+          main_commit=$(printf '%s\n' "$remote_refs" | awk '$2 == "refs/heads/main" { print $1 }')
+          if [ "$main_commit" != "$COMMIT" ]; then
+            echo 'main moved during verification. Run the workflow again.' >&2
+            exit 1
+          fi
+
+          tag_commit=$(printf '%s\n' "$remote_refs" | awk -v ref="refs/tags/$TAG^{}" '$2 == ref { print $1 }')
+          if [ -z "$tag_commit" ]; then
+            tag_commit=$(printf '%s\n' "$remote_refs" | awk -v ref="refs/tags/$TAG" '$2 == ref { print $1 }')
+          fi
+          if [ -z "$tag_commit" ]; then
+            git tag "$TAG" "$COMMIT"
+            git push origin "refs/tags/$TAG"
+          elif [ "$tag_commit" != "$COMMIT" ]; then
+            echo "$TAG already points to another commit." >&2
+            exit 1
+          fi
+
+  publish:
+    needs: [prepare, tag]
+    # A tag pushed with GITHUB_TOKEN does not start a second push workflow.
+    uses: ./.github/workflows/publish-container.yml
+    with:
+      release_tag: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
+  release:
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release history
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: |
+          previous_tag=$(git describe --tags --match 'v[0-9]*' --abbrev=0 "$COMMIT^" 2>/dev/null || true)
+          args=(-f "tag_name=$TAG" -f "target_commitish=$COMMIT")
+          range="$COMMIT"
+          if [ -n "$previous_tag" ]; then
+            args+=(-f "previous_tag_name=$previous_tag")
+            range="$previous_tag..$COMMIT"
+          fi
+
+          gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            "${args[@]}" --jq .body > release-notes.md
+
+          printf '\n## All commits\n\n' >> release-notes.md
+          git log --reverse --format="- [\`%h\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/%H) %s — %aN" \
+            "$range" >> release-notes.md
+          printf '\n## Commit authors\n\n' >> release-notes.md
+          git log --format='%aN' "$range" | LC_ALL=C sort -fu | sed 's/^/- /' \
+            >> release-notes.md
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$COMMIT" \
+            --verify-tag \
+            --notes-file release-notes.md \
+            --title "Seeder $VERSION"
+
+  site:
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Deploy landing page
+        env:
+          SEEDER_WEB_DISPATCH_TOKEN: ${{ secrets.SEEDER_WEB_DISPATCH_TOKEN }}
+          SEEDER_WEB_REPO: ${{ vars.SEEDER_WEB_REPO }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: node scripts/dispatch-release-site.mjs

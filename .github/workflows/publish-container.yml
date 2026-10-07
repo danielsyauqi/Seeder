@@ -5,6 +5,12 @@ on:
     branches: [main]
     tags: ["v*.*.*"]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Version tag to publish from a release workflow
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -20,6 +26,37 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Resolve image tags
+        id: tags
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          tag="$RELEASE_TAG"
+          if [ -z "$tag" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+
+          if [ -n "$tag" ]; then
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Expected a vX.Y.Z release tag, got: $tag" >&2
+              exit 1
+            fi
+            version="${tag#v}"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "minor=${version%.*}" >> "$GITHUB_OUTPUT"
+            echo 'is_release=true' >> "$GITHUB_OUTPUT"
+            echo 'is_main=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'is_release=false' >> "$GITHUB_OUTPUT"
+            if [ "$GITHUB_REF" = refs/heads/main ]; then
+              echo 'is_main=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'is_main=false' >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
@@ -47,10 +84,11 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
             ${{ vars.DOCKER_USERNAME }}/seeder-oss
+          flavor: latest=false
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ steps.tags.outputs.is_main }}
+            type=raw,value=${{ steps.tags.outputs.version }},enable=${{ steps.tags.outputs.is_release }}
+            type=raw,value=${{ steps.tags.outputs.minor }},enable=${{ steps.tags.outputs.is_release }}
             type=sha,prefix=sha-
 
       - name: Build and push image
