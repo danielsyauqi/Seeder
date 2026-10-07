@@ -53,19 +53,25 @@ const nextConfig: NextConfig = {
   // server.js — essential for a lean Docker runtime image. Only applied in
   // node mode; the Cloudflare build uses opennextjs-cloudflare instead.
   ...(process.env.RUNTIME === "node" ? { output: "standalone" } : {}),
-  // `next dev` uses Turbopack. Its resolver also runs on Node, so force the
-  // Cloudflare driver there just as in the webpack production build below.
-  ...(process.env.RUNTIME === "node"
-    ? {}
-    : { turbopack: { resolveAlias: { "#db-runtime": "./lib/db/cloudflare.ts" } } }),
+  // The package import falls back to D1. Both bundlers explicitly select the
+  // driver for this build so Node's package conditions cannot leak libSQL into
+  // a Cloudflare trace.
+  turbopack: {
+    resolveAlias: {
+      "#db-runtime": process.env.RUNTIME === "node"
+        ? "./lib/db/node.ts"
+        : "./lib/db/cloudflare.ts",
+    },
+  },
   webpack(config, { isServer }) {
-    // Next compiles Workers routes on Node, so its resolver normally enables
-    // the `node` package condition. Pin the Cloudflare entry here: Next's
-    // server build and OpenNext's trace must both leave libSQL out.
-    if (isServer && process.env.RUNTIME !== "node") {
+    if (isServer) {
       config.resolve.alias = {
         ...config.resolve.alias,
-        "#db-runtime": path.resolve("./lib/db/cloudflare.ts"),
+        "#db-runtime": path.resolve(
+          process.env.RUNTIME === "node"
+            ? "./lib/db/node.ts"
+            : "./lib/db/cloudflare.ts",
+        ),
       };
     }
     return config;

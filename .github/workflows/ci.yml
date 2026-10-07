@@ -24,8 +24,8 @@ jobs:
         run: npx tsc --noEmit
       - name: Test
         run: npm test
-      - name: Build Node
-        run: npm run build:node
+      # Build Workers first. A Node standalone build leaves libSQL in .next,
+      # and Next's cached trace can carry it into a later OpenNext build.
       - name: Build Cloudflare Worker
         run: npx opennextjs-cloudflare build
       - name: Check Worker excludes libSQL
@@ -34,3 +34,5 @@ jobs:
             echo 'The Cloudflare bundle contains libSQL files.' >&2
             exit 1
           fi
+      - name: Build Node
+        run: npm run build:node

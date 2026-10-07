@@ -3,11 +3,7 @@
   "version": "2.1.0",
   "private": true,
   "imports": {
-    "#db-runtime": {
-      "workerd": "./lib/db/cloudflare.ts",
-      "node": "./lib/db/node.ts",
-      "default": "./lib/db/cloudflare.ts"
-    }
+    "#db-runtime": "./lib/db/cloudflare.ts"
   },
   "description": "Self-hostable project management workspace built on Cloudflare Workers, D1, and R2.",
   "license": "MIT",
