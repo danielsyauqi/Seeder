@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.1 — 2026-10-07
+
+### Fixes
+
+- Allow the first owner to sign up after the VCS migration adds a bot account.
+- Select the database driver for the target runtime so Cloudflare builds exclude
+  the Node-only libSQL client. Keep the Cloudflare build covered by CI.
+
+### Release process
+
+- Add a manual release workflow for public `main` that checks both builds,
+  publishes versioned container images, and creates release notes with the
+  complete commit and contributor lists.
+- Rebuild the static landing page after a release so its version and changelog
+  follow the published GitHub release.
+
 ## 2.1.0 — 2026-09-14
 
 ### Git integration
