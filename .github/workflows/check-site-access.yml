@@ -1,0 +1,26 @@
+name: Check landing page access
+
+on:
+  push:
+    branches: [codex/manual-release]
+    paths: [.github/workflows/check-site-access.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check access to the private site repository
+        env:
+          SITE_TOKEN: ${{ secrets.SEEDER_WEB_DISPATCH_TOKEN }}
+          SITE_REPO: ${{ vars.SEEDER_WEB_REPO }}
+        run: |
+          if [ -z "$SITE_TOKEN" ] || [ -z "$SITE_REPO" ]; then
+            echo 'Landing page token or repository is missing.' >&2
+            exit 1
+          fi
+          GH_TOKEN="$SITE_TOKEN" gh api "repos/$SITE_REPO/actions/workflows" \
+            --jq .total_count >/dev/null
+          echo 'Landing page token can read the private repository workflows.'
