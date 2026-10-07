@@ -20,7 +20,8 @@ See the [README](README.md) for full local D1/R2 setup and deployment steps.
 npm run lint        # ESLint
 npx tsc --noEmit    # type-check
 npm test            # unit tests (Vitest)
-npm run build       # production build
+npm run build:node  # self-hosted Node build
+npx opennextjs-cloudflare build  # Cloudflare Worker build
 ```
 
 Please keep PRs focused, and add or update tests when you change behaviour —
