@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
+import path from "node:path";
 
 // In node mode (RUNTIME=node) we run a plain Node server, so we must NOT
 // initialise the OpenNext/Miniflare dev bindings — that path dynamically imports
@@ -52,6 +53,29 @@ const nextConfig: NextConfig = {
   // server.js — essential for a lean Docker runtime image. Only applied in
   // node mode; the Cloudflare build uses opennextjs-cloudflare instead.
   ...(process.env.RUNTIME === "node" ? { output: "standalone" } : {}),
+  // The package import falls back to D1. Both bundlers explicitly select the
+  // driver for this build so Node's package conditions cannot leak libSQL into
+  // a Cloudflare trace.
+  turbopack: {
+    resolveAlias: {
+      "#db-runtime": process.env.RUNTIME === "node"
+        ? "./lib/db/node.ts"
+        : "./lib/db/cloudflare.ts",
+    },
+  },
+  webpack(config, { isServer }) {
+    if (isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        "#db-runtime": path.resolve(
+          process.env.RUNTIME === "node"
+            ? "./lib/db/node.ts"
+            : "./lib/db/cloudflare.ts",
+        ),
+      };
+    }
+    return config;
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

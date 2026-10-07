@@ -2,7 +2,7 @@ name: CI
 
 # Runs the same gates contributors are asked to run locally (see CONTRIBUTING.md)
 # on every PR and on pushes to main, so a fork can't silently regress lint,
-# types, tests, or the build.
+# types, tests, or either deployment build.
 on:
   push:
     branches: [main]
@@ -24,5 +24,15 @@ jobs:
         run: npx tsc --noEmit
       - name: Test
         run: npm test
-      - name: Build
-        run: npm run build
+      # Build Workers first. A Node standalone build leaves libSQL in .next,
+      # and Next's cached trace can carry it into a later OpenNext build.
+      - name: Build Cloudflare Worker
+        run: npx opennextjs-cloudflare build
+      - name: Check Worker excludes libSQL
+        run: |
+          if [ -n "$(find .open-next -iname '*libsql*' -print -quit)" ]; then
+            echo 'The Cloudflare bundle contains libSQL files.' >&2
+            exit 1
+          fi
+      - name: Build Node
+        run: npm run build:node
