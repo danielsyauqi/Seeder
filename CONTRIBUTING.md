@@ -43,6 +43,25 @@ The live schema is built from the SQL files in `migrations/` (applied via
 `lib/db/schema.ts`, add a matching numbered migration — don't rely on
 `drizzle-kit push`.
 
+## Publishing a public release
+
+1. Merge a PR to public `main` that updates the version in `package.json` and
+   `package-lock.json`, and adds the release entry to `CHANGELOG.md`.
+2. In the public repository, open **Actions → Create release from main → Run
+   workflow**, select `main`, and start the run.
+
+The workflow checks the version and both deployment builds, tags the current
+`main` commit as `vX.Y.Z`, publishes the versioned amd64/arm64 images to GHCR
+and Docker Hub, then creates a GitHub release with generated notes. It refuses
+to release a version that already has a GitHub release. If image publishing
+fails, rerun the workflow after fixing the failure; it accepts an existing tag
+only when it points to the same commit.
+
+The repository needs `DOCKER_USERNAME` as an Actions variable and
+`DOCKER_PASSWORD` as an Actions secret for Docker Hub. GitHub provides
+`GITHUB_TOKEN` for the tag, GHCR image, and release. The separate **Publish
+container image** workflow remains available for image-only rebuilds.
+
 ## Reporting security issues
 
 Please **don't** file security vulnerabilities as public issues — see
