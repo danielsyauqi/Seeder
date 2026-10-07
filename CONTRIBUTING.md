@@ -52,7 +52,8 @@ The live schema is built from the SQL files in `migrations/` (applied via
 
 The workflow checks the version and both deployment builds, tags the current
 `main` commit as `vX.Y.Z`, publishes the versioned amd64/arm64 images to GHCR
-and Docker Hub, then creates a GitHub release with generated notes. It refuses
+and Docker Hub, then creates a GitHub release with GitHub's PR/contributor
+summary plus every commit and commit author since the previous tag. It refuses
 to release a version that already has a GitHub release. If image publishing
 fails, rerun the workflow after fixing the failure; it accepts an existing tag
 only when it points to the same commit.

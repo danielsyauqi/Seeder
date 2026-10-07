@@ -145,6 +145,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out release history
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -152,9 +159,27 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           COMMIT: ${{ needs.prepare.outputs.commit }}
         run: |
+          previous_tag=$(git describe --tags --match 'v[0-9]*' --abbrev=0 "$COMMIT^" 2>/dev/null || true)
+          args=(-f "tag_name=$TAG" -f "target_commitish=$COMMIT")
+          range="$COMMIT"
+          if [ -n "$previous_tag" ]; then
+            args+=(-f "previous_tag_name=$previous_tag")
+            range="$previous_tag..$COMMIT"
+          fi
+
+          gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            "${args[@]}" --jq .body > release-notes.md
+
+          printf '\n## All commits\n\n' >> release-notes.md
+          git log --reverse --format="- [\`%h\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/%H) %s — %aN" \
+            "$range" >> release-notes.md
+          printf '\n## Commit authors\n\n' >> release-notes.md
+          git log --format='%aN' "$range" | LC_ALL=C sort -fu | sed 's/^/- /' \
+            >> release-notes.md
+
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$COMMIT" \
             --verify-tag \
-            --generate-notes \
+            --notes-file release-notes.md \
             --title "Seeder $VERSION"
