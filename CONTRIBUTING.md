@@ -57,8 +57,9 @@ summary plus every commit and commit author since the previous tag. It then
 waits for the static landing page to rebuild and deploy with the new version
 and changelog. It refuses to release a version that already has a GitHub
 release. If image publishing fails, rerun the workflow after fixing the failure;
-it accepts an existing tag
-only when it points to the same commit.
+it accepts an existing tag only when it points to the same commit. If the site
+deployment fails after the GitHub release exists, rerun the failed site job or
+run **Deploy Seeder release site** in `seeder-web` with the new tag.
 
 The repository needs `DOCKER_USERNAME` as an Actions variable and
 `DOCKER_PASSWORD` as an Actions secret for Docker Hub. GitHub provides
