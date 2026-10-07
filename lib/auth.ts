@@ -4,9 +4,10 @@ import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { eq } from "drizzle-orm";
 
-import { authTrustedOrigins, serverEnv } from "@/lib/env";
+import { hasRegisteredUser } from "@/lib/auth-bootstrap";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { authTrustedOrigins, serverEnv } from "@/lib/env";
 import { ensurePersonalSpace } from "@/lib/services/spaces";
 
 const dbProxy = new Proxy(
@@ -77,20 +78,14 @@ export const auth = betterAuth({
     user: {
       create: {
         // First-run bootstrap gate. Onboarding is invite-only, with ONE
-        // exception: a brand-new instance with zero users may create the owner
-        // account, and only for the configured OWNER_EMAIL. Once any user
-        // exists this throws, so it can never be used to self-provision later.
+        // exception: a brand-new instance with no registered users may create
+        // the owner account, and only for the configured OWNER_EMAIL. Once a
+        // real user exists this throws, so it can't self-provision later.
         // (Invite acceptance inserts users directly via Drizzle and never hits
         // this hook, so invited members are unaffected.)
         before: async (candidateUser) => {
           const email = candidateUser.email.toLowerCase();
-          const db = getDb();
-          const [existing] = await db
-            .select({ id: schema.user.id })
-            .from(schema.user)
-            .limit(1);
-
-          if (existing) {
+          if (await hasRegisteredUser()) {
             throw new APIError("FORBIDDEN", {
               message: "Sign-up is disabled. Ask an admin to invite you.",
             });
