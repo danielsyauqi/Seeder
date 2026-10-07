@@ -25,6 +25,18 @@ jobs:
             exit 1
           fi
 
+      - name: Check landing page connection
+        env:
+          SITE_TOKEN: ${{ secrets.SEEDER_WEB_DISPATCH_TOKEN }}
+          SITE_REPO: ${{ vars.SEEDER_WEB_REPO }}
+        run: |
+          if [ -z "$SITE_TOKEN" ] || [ -z "$SITE_REPO" ]; then
+            echo 'Set SEEDER_WEB_DISPATCH_TOKEN secret and SEEDER_WEB_REPO variable.' >&2
+            exit 1
+          fi
+          GH_TOKEN="$SITE_TOKEN" gh workflow view deploy-release.yml \
+            --repo "$SITE_REPO" >/dev/null
+
       - name: Check out release commit
         uses: actions/checkout@v6
         with:
@@ -183,3 +195,19 @@ jobs:
             --verify-tag \
             --notes-file release-notes.md \
             --title "Seeder $VERSION"
+
+  site:
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Deploy landing page
+        env:
+          SEEDER_WEB_DISPATCH_TOKEN: ${{ secrets.SEEDER_WEB_DISPATCH_TOKEN }}
+          SEEDER_WEB_REPO: ${{ vars.SEEDER_WEB_REPO }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: node scripts/dispatch-release-site.mjs
