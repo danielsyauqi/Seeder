@@ -43,4 +43,15 @@ describe("Seeder MCP client setup", () => {
       '--header "Authorization: Bearer $SEEDER_PAT"',
     );
   });
+
+  it("puts the server name before variadic --header options", () => {
+    const origin = "https://pm.example.com";
+
+    for (const client of ["claude", "gemini"] as const) {
+      const { snippet } = buildMcpClientSetup(client, origin);
+      expect(snippet.indexOf(`seeder-pm ${origin}/api/mcp`)).toBeLessThan(
+        snippet.indexOf("--header"),
+      );
+    }
+  });
 });
